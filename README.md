@@ -1,5 +1,5 @@
 # ComfyUI-zyd232-Nodes
 
-## 节点说明
-### 1. Image Pixels Compare  
-此节点用于比较两张输入图片是否完全相同（像素级别的比较），并输出布尔值。
+## Node Description
+### 1. Image Pixels Compare
+This node is used to compare whether two input images are exactly the same (pixel-level comparison) and outputs a boolean value.
