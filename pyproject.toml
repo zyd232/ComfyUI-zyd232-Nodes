@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-zyd232-nodes"
 description = "ComfyUI nodes I need but cannot find."
-version = "0.1.0"
+version = "0.1.1"
 license = { file = "LICENSE" }
 
 [project.urls]
