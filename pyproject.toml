@@ -1,0 +1,13 @@
+[project]
+name = "comfyui-zyd232-nodes"
+description = "ComfyUI nodes I need but cannot find."
+version = "0.1.0"
+license = { file = "LICENSE" }
+
+[project.urls]
+Repository = "https://github.com/zyd232/ComfyUI-zyd232-Nodes"
+
+[tool.comfy]
+PublisherId = "zyd232"
+DisplayName = "ComfyUI-zyd232-Nodes"
+Icon = ""
