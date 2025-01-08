@@ -1,4 +1,4 @@
-# ComfyUI-zyd232-Nodes
+# ComfyUI zyd232 Nodes
 
 ## Node Description
 ### 1. Images Pixels Compare

@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 
-class zyd232_ImagesPixelsCompareNode:
-    """图片对比节点：比较两张图片是否完全相同"""
+class zyd232_ImagesPixelsCompare:
+    # 图片对比节点：比较两张图片是否完全相同
     
     @classmethod
     def INPUT_TYPES(cls):
@@ -19,7 +19,7 @@ class zyd232_ImagesPixelsCompareNode:
 
     RETURN_TYPES = ("BOOLEAN",)
     FUNCTION = "process"
-    CATEGORY = "zyd232-Nodes"
+    CATEGORY = "zyd232 Nodes"
     NAME = "Images Pixels Compare"
 
     def process(self, image1, image2, if_same_output):
@@ -37,10 +37,10 @@ class zyd232_ImagesPixelsCompareNode:
 
 # 注册节点
 NODE_CLASS_MAPPINGS = {
-    "zyd232_ImagesPixelsCompareNode": zyd232_ImagesPixelsCompareNode
+    "zyd232 ImagesPixelsCompare": zyd232_ImagesPixelsCompare
 }
 
 # 显示名称映射
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "zyd232_ImagesPixelsCompareNode": "Images Pixels Compare"
+    "zyd232 ImagesPixelsCompare": "Images Pixels Compare"
 } 
