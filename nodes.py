@@ -1,40 +1,46 @@
 import torch
 import numpy as np
 
-class ImageCompareNode:
+class zyd232_ImagesPixelsCompareNode:
     """图片对比节点：比较两张图片是否完全相同"""
     
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image1": ("IMAGE",),  # ComfyUI的图片格式
+                "image1": ("IMAGE",),
                 "image2": ("IMAGE",),
+                "if_same_output": ("BOOLEAN", {
+                    "default": True,
+                    "name": "If same output:",
+                }),
             },
         }
 
     RETURN_TYPES = ("BOOLEAN",)
     FUNCTION = "process"
     CATEGORY = "zyd232-Nodes"
+    NAME = "Images Pixels Compare"
 
-    def process(self, image1, image2):
+    def process(self, image1, image2, if_same_output):
         # 确保两张图片尺寸相同
         if image1.shape != image2.shape:
-            return (False,)
+            # 图片尺寸不同时，根据开关状态返回
+            return (False if if_same_output else True,)
         
-        # ComfyUI中的图片格式是 torch.Tensor，
-        # 格式为 (batch, height, width, channels)
+        # ComfyUI中的图片格式是 torch.Tensor
         # 直接比较所有像素值是否相同
-        is_identical = torch.all(torch.eq(image1, image2))
+        is_identical = torch.all(torch.eq(image1, image2)).item()
         
-        return (bool(is_identical),)
+        # 根据开关状态返回结果
+        return (is_identical,) if if_same_output else (not is_identical,)
 
 # 注册节点
 NODE_CLASS_MAPPINGS = {
-    "ImageCompareNode": ImageCompareNode
+    "zyd232_ImagesPixelsCompareNode": zyd232_ImagesPixelsCompareNode
 }
 
 # 显示名称映射
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ImageCompareNode": "Image Pixels Compare"
+    "zyd232_ImagesPixelsCompareNode": "Images Pixels Compare"
 } 
