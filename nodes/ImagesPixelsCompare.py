@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 
 class zyd232_ImagesPixelsCompare:
     # 图片对比节点：比较两张图片是否完全相同
@@ -35,12 +34,10 @@ class zyd232_ImagesPixelsCompare:
         # 根据开关状态返回结果
         return (is_identical,) if if_same_output else (not is_identical,)
 
-# 注册节点
 NODE_CLASS_MAPPINGS = {
     "zyd232 ImagesPixelsCompare": zyd232_ImagesPixelsCompare
 }
 
-# 显示名称映射
 NODE_DISPLAY_NAME_MAPPINGS = {
     "zyd232 ImagesPixelsCompare": "Images Pixels Compare"
-} 
+}
