@@ -84,13 +84,15 @@ class zyd232_LLMGenerator:
                 "context_length": ("INT", {"default": 2048, "min": 256, "max": 128000, "step": 256}),
                 
                 "unload_after_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
+                "llama_cpp_unload": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
             },
             "optional": {
                 "image": ("IMAGE", ),
                 "think_start_tag": ("STRING", {"default": "<think>"}),
                 "think_end_tag": ("STRING", {"default": "</think>"}),
-                # 核心变动：移入可选字典，防止不提交时触发引擎拦截报错
-                "unload_endpoint": ("STRING", {"default": "http://127.0.0.1:8080/v1/models/unload"}),
+                # 优化：默认值改为纯路由后缀
+                "unload_endpoint": ("STRING", {"default": "/v1/models/unload"}),
+                "llama_endpoint": ("STRING", {"default": "/models/unload"}),
             }
         }
 
@@ -109,15 +111,20 @@ class zyd232_LLMGenerator:
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def generate_text(self, base_url, api_key, model, force_refresh, thinking, system_prompt, user_prompt, 
-                      temperature, top_k, seed, context_length, unload_after_gen, 
-                      image=None, think_start_tag="<think>", think_end_tag="</think>", unload_endpoint="http://127.0.0.1:8080/v1/models/unload"):
+                      temperature, top_k, seed, context_length, unload_after_gen, llama_cpp_unload,
+                      image=None, think_start_tag="<think>", think_end_tag="</think>", 
+                      unload_endpoint="/v1/models/unload", llama_endpoint="/models/unload"):
         
         if not think_start_tag: think_start_tag = "<think>"
         if not think_end_tag: think_end_tag = "</think>"
-        if not unload_endpoint: unload_endpoint = "http://127.0.0.1:8080/v1/models/unload"
         
-        url = base_url.strip().rstrip("/")
-        v1_url = url if (url.endswith("/v1") or url.endswith("/v1/")) else f"{url}/v1"
+        # 兜底默认后缀
+        if not unload_endpoint: unload_endpoint = "/v1/models/unload"
+        if not llama_endpoint: llama_endpoint = "/models/unload"
+        
+        # 格式化基础 URL 移除尾部斜杠
+        clean_base_url = base_url.strip().rstrip("/")
+        v1_url = clean_base_url if (clean_base_url.endswith("/v1") or clean_base_url.endswith("/v1/")) else f"{clean_base_url}/v1"
         chat_url = f"{v1_url}/chat/completions"
         
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -160,8 +167,8 @@ class zyd232_LLMGenerator:
         try:
             print(f"[zyd232 LLM] Sending request to {chat_url}...")
             response = requests.post(chat_url, headers=headers, json=payload, timeout=120)
-            if response.status_code == 404 and "/v1" not in base_url:
-                response = requests.post(f"{base_url}/chat/completions", headers=headers, json=payload, timeout=120)
+            if response.status_code == 404 and "/v1" not in clean_base_url:
+                response = requests.post(f"{clean_base_url}/chat/completions", headers=headers, json=payload, timeout=120)
             response.raise_for_status()
             
             res_json = response.json()
@@ -194,13 +201,40 @@ class zyd232_LLMGenerator:
             final_text = f"Error: {e}"
             reasoning = ""
 
+        # 动态拼接最终的完整物理 URL
+        full_unload_url = f"{clean_base_url}/{unload_endpoint.lstrip('/')}"
+        full_llama_url = f"{clean_base_url}/{llama_endpoint.lstrip('/')}"
+
+        # 机制1：通用自动卸载
         if unload_after_gen:
             try:
-                unload_resp = requests.delete(unload_endpoint, headers=headers, timeout=5)
+                print(f"[zyd232 LLM] Sending general unload request to: {full_unload_url}")
+                unload_resp = requests.delete(full_unload_url, headers=headers, timeout=5)
                 if unload_resp.status_code not in [200, 204]:
-                    requests.post(unload_endpoint, headers=headers, json={"action": "unload", "model": model, "keep_alive": 0}, timeout=5)
+                    requests.post(full_unload_url, headers=headers, json={"action": "unload", "model": model, "keep_alive": 0}, timeout=5)
             except Exception as e:
-                print(f"[zyd232 LLM] Unload failed: {e}")
+                print(f"[zyd232 LLM] General Unload failed: {e}")
+
+        # 机制2：针对 llama.cpp 原生多模型路由的自动显存释放逻辑（带兜底）
+        if llama_cpp_unload:
+            try:
+                print(f"[zyd232 LLM] Sending unload signal to llama.cpp at: {full_llama_url} for model: {model}...")
+                
+                # 尝试途径 1：标准多模型卸载接口
+                llama_resp = requests.post(full_llama_url, headers=headers, json={"model": model}, timeout=5)
+                
+                # 如果途径 1 返回 502/404，立刻启动途径 2：插槽状态重置释放机制
+                if llama_resp.status_code in [404, 502]:
+                    print("[zyd232 LLM] Standard unloader met 502/404. Trying slot-0 clearance fallback...")
+                    fallback_slot_url = f"{clean_base_url}/slots/0?action=release"
+                    llama_resp = requests.post(fallback_slot_url, headers=headers, json={}, timeout=5)
+                
+                if llama_resp.status_code in [200, 204]:
+                    print("[zyd232 LLM] llama.cpp memory cleared successfully.")
+                else:
+                    print(f"[zyd232 LLM] llama.cpp unload final status: {llama_resp.status_code}")
+            except Exception as e:
+                print(f"[zyd232 LLM] llama.cpp Unload request failed: {e}")
 
         return (final_text, reasoning)
 

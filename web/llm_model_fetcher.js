@@ -11,32 +11,35 @@ app.registerExtension({
             const modelWidget = node.widgets.find(w => w.name === "model");
             const refreshWidget = node.widgets.find(w => w.name === "force_refresh");
             
-            // Thinking 相关小部件
+            // Thinking 栏
             const thinkingWidget = node.widgets.find(w => w.name === "thinking");
             const startTagWidget = node.widgets.find(w => w.name === "think_start_tag");
             const endTagWidget = node.widgets.find(w => w.name === "think_end_tag");
 
-            // Unload 相关小部件
+            // 通用 Unload 栏
             const unloadWidget = node.widgets.find(w => w.name === "unload_after_gen");
             const unloadEndpointWidget = node.widgets.find(w => w.name === "unload_endpoint");
 
-            // 建立所有待控制小部件的备份
+            // Llama.cpp 专用 Unload 栏
+            const llamaUnloadWidget = node.widgets.find(w => w.name === "llama_cpp_unload");
+            const llamaEndpointWidget = node.widgets.find(w => w.name === "llama_endpoint");
+
             if (!node.widgets_bak) {
                 node.widgets_bak = {
                     think_start_tag: startTagWidget,
                     think_end_tag: endTagWidget,
-                    unload_endpoint: unloadEndpointWidget
+                    unload_endpoint: unloadEndpointWidget,
+                    llama_endpoint: llamaEndpointWidget
                 };
             }
 
-            // --- 统合尺寸更新函数 ---
             function refreshNodeSize(currentWidth) {
                 const computedSize = node.computeSize();
                 node.size = [currentWidth, computedSize[1]];
                 app.canvas.setDirty(true, true);
             }
 
-            // --- Thinking 控制逻辑 ---
+            // Thinking UI 控制
             function toggleThinkingWidgets() {
                 const show = thinkingWidget.value;
                 const currentWidth = node.size[0];
@@ -59,13 +62,12 @@ app.registerExtension({
                 refreshNodeSize(currentWidth);
             }
 
-            // --- Unload 控制逻辑 ---
+            // 通用 Unload UI 控制
             function toggleUnloadWidgets() {
                 const show = unloadWidget.value;
                 const currentWidth = node.size[0];
 
                 if (show) {
-                    // 如果开启，确保在 unload_after_gen 组件正下方插入
                     const unloadIdx = node.widgets.indexOf(unloadWidget);
                     if (unloadIdx !== -1) {
                         if (!node.widgets.includes(node.widgets_bak.unload_endpoint)) {
@@ -73,17 +75,33 @@ app.registerExtension({
                         }
                     }
                 } else {
-                    // 如果关闭，从渲染列表中彻底移除
                     node.widgets = node.widgets.filter(w => w.name !== "unload_endpoint");
                 }
                 refreshNodeSize(currentWidth);
             }
 
-            // 绑定事件
+            // Llama.cpp UI 控制
+            function toggleLlamaWidgets() {
+                const show = llamaUnloadWidget.value;
+                const currentWidth = node.size[0];
+
+                if (show) {
+                    const llamaIdx = node.widgets.indexOf(llamaUnloadWidget);
+                    if (llamaIdx !== -1) {
+                        if (!node.widgets.includes(node.widgets_bak.llama_endpoint)) {
+                            node.widgets.splice(llamaIdx + 1, 0, node.widgets_bak.llama_endpoint);
+                        }
+                    }
+                } else {
+                    node.widgets = node.widgets.filter(w => w.name !== "llama_endpoint");
+                }
+                refreshNodeSize(currentWidth);
+            }
+
             thinkingWidget.callback = function() { toggleThinkingWidgets(); };
             unloadWidget.callback = function() { toggleUnloadWidgets(); };
+            llamaUnloadWidget.callback = function() { toggleLlamaWidgets(); };
 
-            // 模型拉取函数
             async function updateModelList() {
                 if (!baseUrlWidget.value) return;
                 try {
@@ -120,11 +138,11 @@ app.registerExtension({
             apiKeyWidget.callback = function() { updateModelList(); };
             refreshWidget.callback = function() { updateModelList(); };
 
-            // 统一延迟初始化
             setTimeout(() => {
                 updateModelList();
                 toggleThinkingWidgets();
                 toggleUnloadWidgets();
+                toggleLlamaWidgets();
             }, 200);
         }
     }

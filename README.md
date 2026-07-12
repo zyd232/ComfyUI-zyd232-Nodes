@@ -1,7 +1,7 @@
 # ComfyUI zyd232 Nodes
 
 ## Node Description
-### 1. LLM Generator
+### 1. LLM Text Generator
 This node provides a flexible LLM API interface for text generation, supporting OpenAI-compatible endpoints. Key features include:
 - **API Configuration**: Configurable `base_url` and `api_key` for connecting to any OpenAI-compatible LLM service (such as Ollama, vLLM, LocalAI, etc.)
 - **Model Selection**: Dynamically fetches and caches available models from the connected API server
@@ -9,7 +9,23 @@ This node provides a flexible LLM API interface for text generation, supporting 
 - **Thinking/Reasoning Mode**: Supports extracting reasoning chains from model responses using custom start/end tags (e.g., `<think>` / `</think>`), with separate outputs for reasoning and final answer
 - **Dual Output**: Provides two output ports — `text` (the final answer) and `reasoning` (the extracted reasoning chain)
 - **Generation Parameters**: Configurable `temperature`, `top_k`, `seed`, and `context_length` for controlling generation behavior
-- **Model Unloading**: Optional automatic model unloading after generation to free up GPU memory
+- **Model Unloading**: Two independent automatic model unloading mechanisms to free up GPU memory after generation (see details below)
+
+#### Auto-Unload Model After Generation (Free GPU Memory)
+
+LLM models take up a lot of VRAM while loaded. These two options let the node **automatically unload the model from GPU memory** after text generation is done, freeing resources for the rest of your ComfyUI workflow.
+
+| Option | When to Use | What It Does |
+|--------|-------------|--------------|
+| **`unload_after_gen`** | vLLM, Ollama, LocalAI, etc. | Sends an unload command to the server after generation. Works with most OpenAI-compatible services. Automatically tries POST if DELETE is not supported. |
+| **`llama_cpp_unload`** | llama.cpp multi-model server | Uses llama.cpp's dedicated unload endpoint. If the standard endpoint is unavailable, automatically falls back to clearing the model slot to free memory. |
+
+**Quick Guide:**
+- Using **vLLM / Ollama**? → Turn on `unload_after_gen`
+- Using **llama.cpp**? → Turn on `llama_cpp_unload`
+- Both can be enabled at the same time — the node will try both
+
+> **Advanced**: If your server uses a custom unload path, you can set `unload_endpoint` and `llama_endpoint` to the path suffix (e.g., `/my/custom/unload`).
 
 ### 2. Images Pixels Compare
 This node is used to compare whether two input images are exactly the same (pixel-level comparison) and outputs a boolean value.
