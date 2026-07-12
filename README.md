@@ -3,7 +3,7 @@
 ## Node Description
 ### 1. LLM Text Generator
 This node provides a flexible LLM API interface for text generation, supporting OpenAI-compatible endpoints. Key features include:
-- **API Configuration**: Configurable `base_url` and `api_key` for connecting to any OpenAI-compatible LLM service (such as Ollama, vLLM, LocalAI, etc.)
+- **API Configuration**: Configurable `base_url` and `api_key` for connecting to any OpenAI-compatible LLM service (such as Ollama, vLLM, llama.cpp, LocalAI, etc.)
 - **Model Selection**: Dynamically fetches and caches available models from the connected API server
 - **Vision Support**: Optional image input for multimodal LLMs (like LLaVA, GPT-4o, etc.), automatically converting images to base64 format
 - **Thinking/Reasoning Mode**: Supports extracting reasoning chains from model responses using custom start/end tags (e.g., `<think>` / `</think>`), with separate outputs for reasoning and final answer
