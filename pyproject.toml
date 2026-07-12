@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-zyd232-nodes"
-description = "ComfyUI custom nodes including LLM text generation (vision, auto-unload, reasoning), image pixel comparison, and other nodes for quality-of-life improvements."
-version = "0.2.3"
+description = "ComfyUI custom nodes including LLM text generation (through API, clean VRAM, auto-unload), image pixel comparison, and other nodes for quality-of-life improvements."
+version = "0.2.4"
 license = { file = "LICENSE" }
 
 [project.urls]

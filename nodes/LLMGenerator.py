@@ -10,6 +10,10 @@ from PIL import Image
 from server import PromptServer
 from aiohttp import web
 
+# 引入官方标准的显存模型管理包
+import gc
+import comfy.model_management
+
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(PLUGIN_ROOT, "cache")
 CACHE_FILE = os.path.join(CACHE_DIR, "model_list.json")
@@ -83,6 +87,9 @@ class zyd232_LLMGenerator:
                 "seed": ("INT", {"default": -1, "min": -1, "max": 0xffffffffffffffff}),
                 "context_length": ("INT", {"default": 2048, "min": 256, "max": 128000, "step": 256}),
                 
+                # 前置显存深度清理开关
+                "clean_comfy_vram_before_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
+                
                 "unload_after_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
                 "llama_cpp_unload": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
             },
@@ -90,7 +97,6 @@ class zyd232_LLMGenerator:
                 "image": ("IMAGE", ),
                 "think_start_tag": ("STRING", {"default": "<think>"}),
                 "think_end_tag": ("STRING", {"default": "</think>"}),
-                # 优化：默认值改为纯路由后缀
                 "unload_endpoint": ("STRING", {"default": "/v1/models/unload"}),
                 "llama_endpoint": ("STRING", {"default": "/models/unload"}),
             }
@@ -111,18 +117,35 @@ class zyd232_LLMGenerator:
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def generate_text(self, base_url, api_key, model, force_refresh, thinking, system_prompt, user_prompt, 
-                      temperature, top_k, seed, context_length, unload_after_gen, llama_cpp_unload,
+                      temperature, top_k, seed, context_length, clean_comfy_vram_before_gen, unload_after_gen, llama_cpp_unload,
                       image=None, think_start_tag="<think>", think_end_tag="</think>", 
                       unload_endpoint="/v1/models/unload", llama_endpoint="/models/unload"):
         
         if not think_start_tag: think_start_tag = "<think>"
         if not think_end_tag: think_end_tag = "</think>"
-        
-        # 兜底默认后缀
         if not unload_endpoint: unload_endpoint = "/v1/models/unload"
         if not llama_endpoint: llama_endpoint = "/models/unload"
         
-        # 格式化基础 URL 移除尾部斜杠
+        # --- 精准匹配的显存深度释放逻辑 ---
+        if clean_comfy_vram_before_gen:
+            try:
+                print("[zyd232 LLM] Purging ComfyUI VRAM prior to LLM compilation...")
+                
+                # 1. 尝试调用基础环境垃圾回收与显存截断（对应原有 clear_memory 作用域）
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                
+                # 2. 调用已验证高效的 ComfyUI 原生驱逐机制
+                comfy.model_management.unload_all_models()
+                comfy.model_management.soft_empty_cache()
+                
+                print("[zyd232 LLM] ComfyUI VRAM purged successfully via standard stack.")
+            except Exception as e:
+                print(f"[zyd232 LLM] Purge execution error: {e}")
+        
+        # 格式化基础 URL
         clean_base_url = base_url.strip().rstrip("/")
         v1_url = clean_base_url if (clean_base_url.endswith("/v1") or clean_base_url.endswith("/v1/")) else f"{clean_base_url}/v1"
         chat_url = f"{v1_url}/chat/completions"
@@ -172,7 +195,6 @@ class zyd232_LLMGenerator:
             response.raise_for_status()
             
             res_json = response.json()
-            
             choices = res_json.get("choices", [])
             if choices:
                 message = choices[0].get("message", {})
@@ -215,15 +237,12 @@ class zyd232_LLMGenerator:
             except Exception as e:
                 print(f"[zyd232 LLM] General Unload failed: {e}")
 
-        # 机制2：针对 llama.cpp 原生多模型路由的自动显存释放逻辑（带兜底）
+        # 机制2：针对 llama.cpp 原生多模型路由的自动显存释放逻辑
         if llama_cpp_unload:
             try:
                 print(f"[zyd232 LLM] Sending unload signal to llama.cpp at: {full_llama_url} for model: {model}...")
-                
-                # 尝试途径 1：标准多模型卸载接口
                 llama_resp = requests.post(full_llama_url, headers=headers, json={"model": model}, timeout=5)
                 
-                # 如果途径 1 返回 502/404，立刻启动途径 2：插槽状态重置释放机制
                 if llama_resp.status_code in [404, 502]:
                     print("[zyd232 LLM] Standard unloader met 502/404. Trying slot-0 clearance fallback...")
                     fallback_slot_url = f"{clean_base_url}/slots/0?action=release"

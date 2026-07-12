@@ -10,6 +10,15 @@ This node provides a flexible LLM API interface for text generation, supporting 
 - **Dual Output**: Provides two output ports — `text` (the final answer) and `reasoning` (the extracted reasoning chain)
 - **Generation Parameters**: Configurable `temperature`, `top_k`, `seed`, and `context_length` for controlling generation behavior
 - **Model Unloading**: Two independent automatic model unloading mechanisms to free up GPU memory after generation (see details below)
+- **VRAM Cleanup Before Generation**: Automatic ComfyUI VRAM clearance before sending the LLM request to ensure enough GPU memory is available (see details below)
+
+#### Clean ComfyUI VRAM Before Generation
+
+The **`clean_comfy_vram_before_gen`** option (enabled by default) automatically frees up GPU memory before sending the LLM request. This helps prevent out-of-memory errors when your GPU is already loaded with other ComfyUI models.
+
+**Quick Guide:**
+- Keep enabled (default) if you have limited VRAM
+- Disable only if you want to keep your ComfyUI models loaded in VRAM for faster image generation
 
 #### Auto-Unload Model After Generation (Free GPU Memory)
 
