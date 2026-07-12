@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-zyd232-nodes"
-description = "ComfyUI nodes I need but cannot find."
+description = "ComfyUI custom nodes including LLM text generation (vision & reasoning), image pixel comparison, and other nodes for quality-of-life improvements."
 version = "0.2.1"
 license = { file = "LICENSE" }
 
