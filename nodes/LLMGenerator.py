@@ -73,11 +73,7 @@ class zyd232_LLMGenerator:
                 "model": (load_cached_models(), ), 
                 
                 "force_refresh": ("BOOLEAN", {"default": False, "label_on": "🔄 Click to Refresh", "label_off": "🔄 Click to Refresh"}),
-                
-                # Thinking 开关与自定义标签栏
                 "thinking": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
-                "think_start_tag": ("STRING", {"default": "<think>"}),
-                "think_end_tag": ("STRING", {"default": "</think>"}),
 
                 "system_prompt": ("STRING", {"multiline": True, "default": "You are a helpful AI assistant."}),
                 "user_prompt": ("STRING", {"multiline": True, "default": "Describe this image or answer my question."}),
@@ -88,17 +84,21 @@ class zyd232_LLMGenerator:
                 "context_length": ("INT", {"default": 2048, "min": 256, "max": 128000, "step": 256}),
                 
                 "unload_after_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
-                "unload_endpoint": ("STRING", {"default": "http://127.0.0.1:8080/v1/models/unload"}),
             },
-            "optional": {"image": ("IMAGE", ),}
+            "optional": {
+                "image": ("IMAGE", ),
+                "think_start_tag": ("STRING", {"default": "<think>"}),
+                "think_end_tag": ("STRING", {"default": "</think>"}),
+                # 核心变动：移入可选字典，防止不提交时触发引擎拦截报错
+                "unload_endpoint": ("STRING", {"default": "http://127.0.0.1:8080/v1/models/unload"}),
+            }
         }
 
-    # 核心修改：双输出端设计
     RETURN_TYPES = ("STRING", "STRING")
     RETURN_NAMES = ("text", "reasoning")
     FUNCTION = "generate_text"
     CATEGORY = "zyd232 Nodes/LLM"
-    NAME = "LLM API Generator"
+    NAME = "LLM Text Generator"
 
     def tensor_to_base64(self, tensor):
         image_np = tensor[0].cpu().numpy() * 255.0
@@ -108,20 +108,28 @@ class zyd232_LLMGenerator:
         img.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    def generate_text(self, base_url, api_key, model, force_refresh, thinking, think_start_tag, think_end_tag, 
-                      system_prompt, user_prompt, temperature, top_k, seed, context_length, unload_after_gen, unload_endpoint, image=None):
+    def generate_text(self, base_url, api_key, model, force_refresh, thinking, system_prompt, user_prompt, 
+                      temperature, top_k, seed, context_length, unload_after_gen, 
+                      image=None, think_start_tag="<think>", think_end_tag="</think>", unload_endpoint="http://127.0.0.1:8080/v1/models/unload"):
         
         if not think_start_tag: think_start_tag = "<think>"
         if not think_end_tag: think_end_tag = "</think>"
-
+        if not unload_endpoint: unload_endpoint = "http://127.0.0.1:8080/v1/models/unload"
+        
         url = base_url.strip().rstrip("/")
         v1_url = url if (url.endswith("/v1") or url.endswith("/v1/")) else f"{url}/v1"
         chat_url = f"{v1_url}/chat/completions"
         
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         messages = []
-        if system_prompt.strip():
-            messages.append({"role": "system", "content": system_prompt})
+        
+        adjusted_system_prompt = system_prompt
+        if not thinking:
+            extra_instruction = " Please provide the direct answer immediately. Do NOT output any thinking process or internal reasoning."
+            adjusted_system_prompt = system_prompt + extra_instruction if system_prompt.strip() else extra_instruction
+
+        if adjusted_system_prompt.strip():
+            messages.append({"role": "system", "content": adjusted_system_prompt})
 
         if image is not None:
             base64_image = self.tensor_to_base64(image)
@@ -139,6 +147,10 @@ class zyd232_LLMGenerator:
             "model": model, "messages": messages, "temperature": temperature,
             "top_k": top_k, "num_ctx": context_length, "n_ctx": context_length
         }
+        
+        if not thinking:
+            payload["thinking_config"] = {"mode": "none"}
+
         if seed != -1: payload["seed"] = seed
 
         full_text = ""
@@ -154,7 +166,6 @@ class zyd232_LLMGenerator:
             
             res_json = response.json()
             
-            # 优先从标准的 API 返回字段中提取思维链（如 SiliconFlow/DeepSeek 的 reasoning_content）
             choices = res_json.get("choices", [])
             if choices:
                 message = choices[0].get("message", {})
@@ -165,23 +176,23 @@ class zyd232_LLMGenerator:
 
             final_text = full_text
 
-            # 如果用户开启了思维链解析，且通过原生字段没能拿到 reasoning（比如本地 llama.cpp 返回都在 content 里）
-            if thinking and not reasoning:
-                # 转义用户输入的自定义标签，防止包含特殊正则字符
-                escaped_start = re.escape(think_start_tag)
-                escaped_end = re.escape(think_end_tag)
-                
-                # 正则匹配标签中间的内容
-                pattern = f"{escaped_start}(.*?){escaped_end}"
-                match = re.search(pattern, full_text, re.DOTALL)
-                
-                if match:
+            escaped_start = re.escape(think_start_tag)
+            escaped_end = re.escape(think_end_tag)
+            pattern = f"{escaped_start}(.*?){escaped_end}"
+            match = re.search(pattern, full_text, re.DOTALL)
+
+            if thinking:
+                if not reasoning and match:
                     reasoning = match.group(1).strip()
-                    # 从最终回答中移除被包裹的思维链部分及标签本身
                     final_text = re.sub(pattern, "", full_text, flags=re.DOTALL).strip()
+            else:
+                if match:
+                    final_text = re.sub(pattern, "", full_text, flags=re.DOTALL).strip()
+                reasoning = ""
 
         except Exception as e:
             final_text = f"Error: {e}"
+            reasoning = ""
 
         if unload_after_gen:
             try:
@@ -194,4 +205,4 @@ class zyd232_LLMGenerator:
         return (final_text, reasoning)
 
 NODE_CLASS_MAPPINGS = {"zyd232 LLMGenerator": zyd232_LLMGenerator}
-NODE_DISPLAY_NAME_MAPPINGS = {"zyd232 LLMGenerator": "LLM Generator"}
+NODE_DISPLAY_NAME_MAPPINGS = {"zyd232 LLMGenerator": "LLM Text Generator"}
