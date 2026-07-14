@@ -11,6 +11,15 @@ This node provides a flexible LLM API interface for text generation, supporting 
 - **Generation Parameters**: Configurable `temperature`, `top_k`, `seed`, and `context_length` for controlling generation behavior
 - **Model Unloading**: Two independent automatic model unloading mechanisms to free up GPU memory after generation (see details below)
 - **VRAM Cleanup Before Generation**: Automatic ComfyUI VRAM clearance before sending the LLM request to ensure enough GPU memory is available (see details below)
+- **Prompt Cache**: Optional `cache_prompt` parameter to help your LLM server reuse previous results for similar prompts (see details below)
+
+#### Prompt Cache (`cache_prompt`)
+
+If your LLM server supports caching (such as vLLM), enabling this option tells the server to remember your previous prompts. When you send the **same or similar** prompt again, the server can return the cached result directly, which **greatly speeds up response time**.
+
+**Quick Guide:**
+- Your LLM server supports caching? → Turn on `cache_prompt`
+- Not sure? → Leaving it off is fine, it just won't use caching
 
 #### Clean ComfyUI VRAM Before Generation
 

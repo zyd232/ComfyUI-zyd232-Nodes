@@ -110,6 +110,8 @@ class zyd232_LLMGenerator:
                 
                 "llama_cpp_unload": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
                 "llama_endpoint": ("STRING", {"default": "/models/unload"}),
+                
+                "cache_prompt": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable"}),
             },
             "optional": {
                 "image": ("IMAGE", ),
@@ -131,12 +133,13 @@ class zyd232_LLMGenerator:
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     # 参数顺序必须与 required 中的键严格一一对应
-    def generate_text(self, base_url, api_key, model, system_prompt, user_prompt, 
-                      temperature, top_k, seed, context_length, force_refresh, 
+    def generate_text(self, base_url, api_key, model, system_prompt, user_prompt,
+                      temperature, top_k, seed, context_length, force_refresh,
                       thinking, think_start_tag, think_end_tag,
-                      clean_comfy_vram_before_gen, 
+                      clean_comfy_vram_before_gen,
                       unload_after_gen, unload_endpoint,
-                      llama_cpp_unload, llama_endpoint, 
+                      llama_cpp_unload, llama_endpoint,
+                      cache_prompt,
                       image=None):
         
         # 兜底空字符串的情况
@@ -203,6 +206,8 @@ class zyd232_LLMGenerator:
         if not thinking:
             payload["thinking_config"] = {"mode": "none"}
         if seed != -1: payload["seed"] = seed
+        if cache_prompt:
+            payload["cache_prompt"] = True
 
         full_text = ""
         reasoning = ""
