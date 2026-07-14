@@ -96,7 +96,7 @@ class zyd232_LLMGenerator:
                 "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Randomness: higher is more creative, lower is more stable"}),
                 "top_k": ("INT", {"default": 40, "min": 1, "max": 100, "tooltip": "Pick next word from top K candidates"}),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 0xffffffffffffffff, "tooltip": "Random seed for reproducibility, -1 for random"}),
-                "context_length": ("INT", {"default": 2048, "min": 256, "max": 128000, "step": 256, "tooltip": "Context window size the model can remember"}),
+                "context_length": ("INT", {"default": 2048, "min": -1, "max": 128000, "step": 256, "tooltip": "Context window size. Set to -1 or 0 to omit num_ctx/n_ctx and let the server use its default context length"}),
                   
                 # --- 所有扩展功能全部静态常驻，确保数组索引绝对固定 ---
                 "thinking": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Separate AI's thinking process from final answer"}),
@@ -208,8 +208,11 @@ class zyd232_LLMGenerator:
 
         payload = {
             "model": actual_model, "messages": messages, "temperature": temperature,
-            "top_k": top_k, "num_ctx": context_length, "n_ctx": context_length
+            "top_k": top_k
         }
+        if context_length not in [-1, 0]:
+            payload["num_ctx"] = context_length
+            payload["n_ctx"] = context_length
         
         if not thinking:
             payload["thinking_config"] = {"mode": "none"}
