@@ -84,37 +84,37 @@ class zyd232_LLMGenerator:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "base_url": ("STRING", {"default": "http://127.0.0.1:8080"}),
-                "api_key": ("STRING", {"default": "sk-no-key-required", "password": True}),
-                "model": (load_cached_models(), ), 
-                
-                "system_prompt": ("STRING", {"multiline": True, "default": "You are a helpful AI assistant."}),
-                "user_prompt": ("STRING", {"multiline": True, "default": "Describe this image or answer my question."}),
-                
-                "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.05}),
-                "top_k": ("INT", {"default": 40, "min": 1, "max": 100}),
-                "seed": ("INT", {"default": -1, "min": -1, "max": 0xffffffffffffffff}),
-                "context_length": ("INT", {"default": 2048, "min": 256, "max": 128000, "step": 256}),
-                
-                "force_refresh": ("BOOLEAN", {"default": False, "label_on": "🔄 Click to Refresh", "label_off": "🔄 Click to Refresh"}),
-                
+                "base_url": ("STRING", {"default": "http://127.0.0.1:8080", "tooltip": "AI service URL, e.g. Ollama or vLLM endpoint"}),
+                "api_key": ("STRING", {"default": "sk-no-key-required", "password": True, "tooltip": "API key, or ENV:var_name to read from environment"}),
+                "model": (load_cached_models(), {"tooltip": "Vision model for image understanding"}),
+                "model_NoVision": (load_cached_models(), {"tooltip": "Text-only model used when no image is provided"}),
+                "force_refresh": ("BOOLEAN", {"default": False, "label_on": "🔄 Click to Refresh", "label_off": "🔄 Click to Refresh", "tooltip": "Click to refresh the model list"}),
+                  
+                "system_prompt": ("STRING", {"multiline": True, "default": "You are a helpful AI assistant.", "tooltip": "System prompt that defines the AI's role and behavior"}),
+                "user_prompt": ("STRING", {"multiline": True, "default": "Describe this image or answer my question.", "tooltip": "Your question or instruction for the AI"}),
+                  
+                "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Randomness: higher is more creative, lower is more stable"}),
+                "top_k": ("INT", {"default": 40, "min": 1, "max": 100, "tooltip": "Pick next word from top K candidates"}),
+                "seed": ("INT", {"default": -1, "min": -1, "max": 0xffffffffffffffff, "tooltip": "Random seed for reproducibility, -1 for random"}),
+                "context_length": ("INT", {"default": 2048, "min": 256, "max": 128000, "step": 256, "tooltip": "Context window size the model can remember"}),
+                  
                 # --- 所有扩展功能全部静态常驻，确保数组索引绝对固定 ---
-                "thinking": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
-                "think_start_tag": ("STRING", {"default": "<think>"}),
-                "think_end_tag": ("STRING", {"default": "</think>"}),
-                
-                "clean_comfy_vram_before_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
-                
-                "unload_after_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
-                "unload_endpoint": ("STRING", {"default": "/v1/models/unload"}),
-                
-                "llama_cpp_unload": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable"}),
-                "llama_endpoint": ("STRING", {"default": "/models/unload"}),
-                
-                "cache_prompt": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable"}),
+                "thinking": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Separate AI's thinking process from final answer"}),
+                "think_start_tag": ("STRING", {"default": "<think>", "tooltip": "Opening tag to mark the start of thinking content"}),
+                "think_end_tag": ("STRING", {"default": "</think>", "tooltip": "Closing tag to mark the end of thinking content"}),
+                  
+                "clean_comfy_vram_before_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Clear ComfyUI VRAM before generation to avoid OOM"}),
+                  
+                "unload_after_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Unload model after generation to free VRAM"}),
+                "unload_endpoint": ("STRING", {"default": "/v1/models/unload", "tooltip": "API endpoint path for unloading the model"}),
+                  
+                "llama_cpp_unload": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Unload model via llama.cpp-specific endpoint"}),
+                "llama_endpoint": ("STRING", {"default": "/models/unload", "tooltip": "llama.cpp unload API endpoint path"}),
+                  
+                "cache_prompt": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Cache prompts to speed up repeated requests"}),
             },
             "optional": {
-                "image": ("IMAGE", ),
+                "image": ("IMAGE", {"tooltip": "Optional: pass an image for vision model analysis"}),
             }
         }
 
@@ -133,8 +133,8 @@ class zyd232_LLMGenerator:
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     # 参数顺序必须与 required 中的键严格一一对应
-    def generate_text(self, base_url, api_key, model, system_prompt, user_prompt,
-                      temperature, top_k, seed, context_length, force_refresh,
+    def generate_text(self, base_url, api_key, model, model_NoVision, force_refresh, system_prompt, user_prompt,
+                      temperature, top_k, seed, context_length,
                       thinking, think_start_tag, think_end_tag,
                       clean_comfy_vram_before_gen,
                       unload_after_gen, unload_endpoint,
@@ -198,8 +198,16 @@ class zyd232_LLMGenerator:
         else:
             messages.append({"role": "user", "content": user_prompt})
 
+        # 决定实际使用的模型
+        if image is None:
+            # 无图情况：优先使用 model_NoVision
+            actual_model = model_NoVision
+        else:
+            # 有图情况：使用 model（vision 模型）
+            actual_model = model
+
         payload = {
-            "model": model, "messages": messages, "temperature": temperature,
+            "model": actual_model, "messages": messages, "temperature": temperature,
             "top_k": top_k, "num_ctx": context_length, "n_ctx": context_length
         }
         
@@ -215,7 +223,7 @@ class zyd232_LLMGenerator:
 
         def send_post(url, payload_dict, timeout_sec=120):
             req = urllib.request.Request(
-                url, data=json.dumps(payload_dict).encode('utf-8'), 
+                url, data=json.dumps(payload_dict).encode('utf-8'),
                 headers=headers, method='POST'
             )
             with urllib.request.urlopen(req, timeout=timeout_sec) as response:
@@ -223,12 +231,25 @@ class zyd232_LLMGenerator:
                 return json.loads(res_body) if res_body.strip() else {}
 
         try:
-            print(f"[zyd232 LLM] Sending request to {chat_url}...")
+            print(f"[zyd232 LLM] Sending request to {chat_url} with model: {actual_model}...")
             try:
                 res_json = send_post(chat_url, payload)
             except urllib.error.HTTPError as e:
                 if e.code == 404 and "/v1" not in clean_base_url:
                     res_json = send_post(f"{clean_base_url}/chat/completions", payload)
+                elif image is None and actual_model != model and e.code not in [200, 204]:
+                    # Fallback: model_NoVision 调用失败，回退到 model
+                    print(f"[zyd232 LLM] model_NoVision '{actual_model}' failed (HTTP {e.code}), falling back to model: {model}")
+                    actual_model = model
+                    payload["model"] = model
+                    print(f"[zyd232 LLM] Retrying with fallback model: {model}...")
+                    try:
+                        res_json = send_post(chat_url, payload)
+                    except urllib.error.HTTPError as e2:
+                        if e2.code == 404 and "/v1" not in clean_base_url:
+                            res_json = send_post(f"{clean_base_url}/chat/completions", payload)
+                        else:
+                            raise e2
                 else:
                     raise e
             
@@ -271,15 +292,15 @@ class zyd232_LLMGenerator:
                     urllib.request.urlopen(req_del, timeout=5)
                 except urllib.error.HTTPError as e:
                     if e.code not in [200, 204]:
-                        send_post(full_unload_url, {"action": "unload", "model": model, "keep_alive": 0}, timeout_sec=5)
+                        send_post(full_unload_url, {"action": "unload", "model": actual_model, "keep_alive": 0}, timeout_sec=5)
             except Exception as e:
                 print(f"[zyd232 LLM] General Unload failed: {e}")
 
         if llama_cpp_unload:
             try:
-                print(f"[zyd232 LLM] Sending unload signal to llama.cpp at: {full_llama_url} for model: {model}...")
+                print(f"[zyd232 LLM] Sending unload signal to llama.cpp at: {full_llama_url} for model: {actual_model}...")
                 try:
-                    send_post(full_llama_url, {"model": model}, timeout_sec=5)
+                    send_post(full_llama_url, {"model": actual_model}, timeout_sec=5)
                 except urllib.error.HTTPError as e:
                     if e.code in [404, 502]:
                         fallback_slot_url = f"{clean_base_url}/slots/0?action=release"
