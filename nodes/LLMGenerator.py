@@ -80,37 +80,42 @@ async def fetch_models_endpoint(request):
 
 
 class zyd232_LLMGenerator:
+    _CHOICE_PLACEHOLDER = "You can choose a model from the list"
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "base_url": ("STRING", {"default": "http://127.0.0.1:8080", "tooltip": "AI service URL, e.g. Ollama or vLLM endpoint"}),
                 "api_key": ("STRING", {"default": "sk-no-key-required", "password": True, "tooltip": "API key, or ENV:var_name to read from environment"}),
-                "model": (load_cached_models(), {"tooltip": "Vision model for image understanding"}),
-                "model_NoVision": (load_cached_models(), {"tooltip": "Text-only model used when no image is provided"}),
+                # --- model: STRING (free input) + COMBO (selector) dual-column design to avoid cache validation issues ---
+                "model": ("STRING", {"default": "", "tooltip": "Vision model name (free input). Can be typed manually or selected from the dropdown below."}),
+                "model_select": ((cls._CHOICE_PLACEHOLDER,), {"tooltip": "Dropdown to select a vision model. Selection will fill the 'model' field above."}),
+                "model_NoVision": ("STRING", {"default": "", "tooltip": "Text-only model name (free input). Used when no image is provided."}),
+                "model_NoVision_select": ((cls._CHOICE_PLACEHOLDER,), {"tooltip": "Dropdown to select a text-only model. Selection will fill the 'model_NoVision' field above."}),
                 "force_refresh": ("BOOLEAN", {"default": False, "label_on": "🔄 Click to Refresh", "label_off": "🔄 Click to Refresh", "tooltip": "Click to refresh the model list"}),
-                  
+
                 "system_prompt": ("STRING", {"multiline": True, "default": "You are a helpful AI assistant.", "tooltip": "System prompt that defines the AI's role and behavior"}),
                 "user_prompt": ("STRING", {"multiline": True, "default": "Describe this image or answer my question.", "tooltip": "Your question or instruction for the AI"}),
-                  
+
                 "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Randomness: higher is more creative, lower is more stable"}),
                 "top_k": ("INT", {"default": 40, "min": 1, "max": 100, "tooltip": "Pick next word from top K candidates"}),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 0xffffffffffffffff, "tooltip": "Random seed for reproducibility, -1 for random"}),
                 "context_length": ("INT", {"default": 2048, "min": -1, "max": 128000, "step": 256, "tooltip": "Context window size. Set to -1 or 0 to omit num_ctx/n_ctx and let the server use its default context length"}),
-                  
+
                 # --- 所有扩展功能全部静态常驻，确保数组索引绝对固定 ---
                 "thinking": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Separate AI's thinking process from final answer"}),
                 "think_start_tag": ("STRING", {"default": "<think>", "tooltip": "Opening tag to mark the start of thinking content"}),
                 "think_end_tag": ("STRING", {"default": "</think>", "tooltip": "Closing tag to mark the end of thinking content"}),
-                  
+
                 "clean_comfy_vram_before_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Clear ComfyUI VRAM before generation to avoid OOM"}),
-                  
+
                 "unload_after_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Unload model after generation to free VRAM"}),
                 "unload_endpoint": ("STRING", {"default": "/v1/models/unload", "tooltip": "API endpoint path for unloading the model"}),
-                  
+
                 "llama_cpp_unload": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Unload model via llama.cpp-specific endpoint"}),
                 "llama_endpoint": ("STRING", {"default": "/models/unload", "tooltip": "llama.cpp unload API endpoint path"}),
-                  
+
                 "cache_prompt": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Cache prompts to speed up repeated requests"}),
             },
             "optional": {
@@ -133,7 +138,8 @@ class zyd232_LLMGenerator:
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     # 参数顺序必须与 required 中的键严格一一对应
-    def generate_text(self, base_url, api_key, model, model_NoVision, force_refresh, system_prompt, user_prompt,
+    # model_select / model_NoVision_select 为前端辅助选择器，后端不使用它们的值
+    def generate_text(self, base_url, api_key, model, model_select, model_NoVision, model_NoVision_select, force_refresh, system_prompt, user_prompt,
                       temperature, top_k, seed, context_length,
                       thinking, think_start_tag, think_end_tag,
                       clean_comfy_vram_before_gen,
