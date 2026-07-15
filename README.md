@@ -2,48 +2,51 @@
 
 ## Node Description
 ### 1. LLM Text Generator
-This node provides a flexible LLM API interface for text generation, supporting OpenAI-compatible endpoints. Key features include:
-- **API Configuration**: Configurable `base_url` and `api_key` for connecting to any OpenAI-compatible LLM service (such as Ollama, vLLM, llama.cpp, LocalAI, etc.)
-- **Model Selection**: Dynamically fetches and caches available models from the connected API server
-- **Vision Support**: Optional image input for multimodal LLMs (like LLaVA, GPT-4o, etc.), automatically converting images to base64 format
-- **Thinking/Reasoning Mode**: Supports extracting reasoning chains from model responses using custom start/end tags (e.g., `<think>` / `</think>`), with separate outputs for reasoning and final answer
-- **Dual Output**: Provides two output ports — `text` (the final answer) and `reasoning` (the extracted reasoning chain)
-- **Generation Parameters**: Configurable `temperature`, `top_k`, `seed`, and `context_length` for controlling generation behavior
-- **Model Unloading**: Two independent automatic model unloading mechanisms to free up GPU memory after generation (see details below)
-- **VRAM Cleanup Before Generation**: Automatic ComfyUI VRAM clearance before sending the LLM request to ensure enough GPU memory is available (see details below)
-- **Prompt Cache**: Optional `cache_prompt` parameter to help your LLM server reuse previous results for similar prompts (see details below)
+This node connects to any OpenAI-compatible LLM service (Ollama, vLLM, llama.cpp, LocalAI, etc.) for text generation inside ComfyUI workflows.
 
-#### Prompt Cache (`cache_prompt`)
+#### Config Preset System — Save and Switch Settings
 
-If your LLM server supports caching (such as vLLM), enabling this option tells the server to remember your previous prompts. When you send the **same or similar** prompt again, the server can return the cached result directly, which **greatly speeds up response time**.
+Save all your settings (API URL, key, model, prompts, parameters) as named presets, and switch between them with one click.
 
-**Quick Guide:**
-- Your LLM server supports caching? → Turn on `cache_prompt`
-- Not sure? → Leaving it off is fine, it just won't use caching
+**How to use:**
 
-#### Clean ComfyUI VRAM Before Generation
+1. **Configure the node** — Fill in `base_url`, `api_key`, choose a model, write your prompts, and set other parameters.
+2. **Name your preset** — Type a name into the **config_name** field (e.g., "My Ollama", "GPT-4o"). Invalid file-system characters are automatically removed.
+3. **Save** — Click **💾 Save Config & Hide API**. All current settings are saved under that name, and your `api_key` is hidden as `********` for security.
+4. **Switch presets** — Pick any saved preset from the **config_select** dropdown. All fields are filled in automatically (no separate "Load" button needed).
+5. **Delete** — Select a preset in the dropdown, then click **🗑 Delete**. The built-in "Default" preset cannot be deleted.
+6. **Refresh list** — Click **🔄 Refresh Config List** to reload the preset dropdown at any time.
 
-The **`clean_comfy_vram_before_gen`** option (enabled by default) automatically frees up GPU memory before sending the LLM request. This helps prevent out-of-memory errors when your GPU is already loaded with other ComfyUI models.
+**Tips:**
+- **"Default"** is always available as a fallback preset.
+- After saving, your `api_key` shows as `********` but the real key is still used behind the scenes.
+- Create separate presets for different LLM backends (e.g., one for Ollama, one for vLLM) and switch instantly.
 
-**Quick Guide:**
-- Keep enabled (default) if you have limited VRAM
-- Disable only if you want to keep your ComfyUI models loaded in VRAM for faster image generation
+#### Model Selection
 
-#### Auto-Unload Model After Generation (Free GPU Memory)
+Two dropdown selectors are provided:
 
-LLM models take up a lot of VRAM while loaded. These two options let the node **automatically unload the model from GPU memory** after text generation is done, freeing resources for the rest of your ComfyUI workflow.
+- **model_select** — Pick a vision model (used when an image is connected). After picking, the dropdown resets to the placeholder.
+- **model_NoVision_select** — Pick a text-only model (used when no image is connected). Resets after picking too.
 
-| Option | When to Use | What It Does |
-|--------|-------------|--------------|
-| **`unload_after_gen`** | vLLM, Ollama, LocalAI, etc. | Sends an unload command to the server after generation. Works with most OpenAI-compatible services. Automatically tries POST if DELETE is not supported. |
-| **`llama_cpp_unload`** | llama.cpp multi-model server | Uses llama.cpp's dedicated unload endpoint. If the standard endpoint is unavailable, automatically falls back to clearing the model slot to free memory. |
+You can also type model names directly into the **model** / **model_NoVision** text fields. Click **🔄 Refresh Model List** to re-fetch available models from your API server.
 
-**Quick Guide:**
-- Using **vLLM / Ollama**? → Turn on `unload_after_gen`
-- Using **llama.cpp**? → Turn on `llama_cpp_unload`
-- Both can be enabled at the same time — the node will try both
+> When no image input is connected, the node automatically uses **model_NoVision**. If that model fails, it falls back to **model**.
 
-> **Advanced**: If your server uses a custom unload path, you can set `unload_endpoint` and `llama_endpoint` to the path suffix (e.g., `/my/custom/unload`).
+#### Key Features
+
+- **Vision Support** — Connect an image input for multimodal LLMs (LLaVA, GPT-4o, etc.). Images are automatically converted to base64 for the API.
+- **Thinking / Reasoning Mode** — Enable **thinking** to separate the model's reasoning chain from its final answer. Uses custom tags (`<think>` / `</think>` by default). Reasoning goes to the `reasoning` output, the answer to the `text` output.
+- **Dual Output** — `text` (final answer) and `reasoning` (extracted thinking process).
+
+#### Other Options Quick Reference
+
+| Option | What It Does | When to Enable |
+|--------|-------------|----------------|
+| **cache_prompt** | Tells the server to cache prompts for faster repeated responses | Server supports caching (e.g., vLLM) |
+| **clean_comfy_vram_before_gen** | Frees ComfyUI GPU memory before sending the LLM request | Limited VRAM |
+| **unload_after_gen** | Sends an unload command to the server after generation | Using vLLM, Ollama, LocalAI, etc. |
+| **llama_cpp_unload** | Unloads via llama.cpp-specific endpoint | Using a llama.cpp server |
 
 ### 2. Images Pixels Compare
 This node is used to compare whether two input images are exactly the same (pixel-level comparison) and outputs a boolean value.
