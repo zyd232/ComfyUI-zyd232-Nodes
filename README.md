@@ -2,11 +2,11 @@
 
 ## Node Description
 ### 1. LLM Text Generator
-This node connects to any OpenAI-compatible LLM service (Ollama, vLLM, llama.cpp, LocalAI, etc.) for text generation inside ComfyUI workflows.
+This node connects to any OpenAI-compatible LLM service (Ollama, vLLM, llama.cpp, LocalAI, etc.) for text generation inside ComfyUI workflows. It supports multiple reference images, videos and audio, and can generate text from any OpenAI-compatible server.
 
 #### Config Preset System — Save and Switch Settings
 
-Save all your settings (API URL, key, model, prompts, parameters) as named presets, and switch between them with one click.
+Save all your settings (API URL, key, model, prompts, parameters) as named presets, and switch between them with one click. Presets are stored in a single JSON file (`presets/llm_text_generator_presets.json`).
 
 **How to use:**
 
@@ -22,22 +22,49 @@ Save all your settings (API URL, key, model, prompts, parameters) as named prese
 - After saving, your `api_key` shows as `********` but the real key is still used behind the scenes.
 - Create separate presets for different LLM backends (e.g., one for Ollama, one for vLLM) and switch instantly.
 
+#### API Key & Environment Variables
+
+- The `api_key` field accepts a plain key, or `ENV:var_name` to read the key from an environment variable at runtime.
+- If the widget shows the masked placeholder `********`, the real key is loaded from the saved preset automatically.
+- As a last resort, the node falls back to the `api_key` stored in the **Default** preset.
+
 #### Model Selection
 
 Two dropdown selectors are provided:
 
-- **model_select** — Pick a vision model (used when an image is connected). After picking, the dropdown resets to the placeholder.
-- **model_NoVision_select** — Pick a text-only model (used when no image is connected). Resets after picking too.
+- **model_select** — Pick a vision model (used when an image/video/audio is connected). After picking, the dropdown resets to the placeholder.
+- **model_NoVision_select** — Pick a text-only model (used when no media is connected). Resets after picking too.
 
 You can also type model names directly into the **model** / **model_NoVision** text fields. Click **🔄 Refresh Model List** to re-fetch available models from your API server.
 
-> When no image input is connected, the node automatically uses **model_NoVision**. If that model fails, it falls back to **model**.
+> When no image/video/audio input is connected, the node automatically uses **model_NoVision**. If that model fails, it falls back to **model**.
+
+#### Multimodal Inputs (Images, Videos, Audio)
+
+The node supports multiple reference images, videos and audio via autogrow inputs:
+
+- **images** — Connect one or more reference images (`image_0`, `image_1`, ... up to `image_9`). Images are converted to base64 PNG and sent to the API.
+- **videos** — Connect one or more reference videos (`video_0`, `video_1`, ... up to `video_3`). Frames are sampled and sent as images.
+- **video_audios** — Connect the soundtrack of the same-numbered reference video (`video_audio_0`, ... up to `video_audio_3`).
+- **audios** — Connect standalone reference audio (`audio_0`, ... up to `audio_5`).
+
+> The inputs follow the same pattern as MiniMax H3 Reference to Video: connect `image_0` to reveal `image_1`, and so on.
+
+**Video sampling controls:**
+- **video_fps** — Frames per second sampled from each reference video (default `1.0`).
+- **max_video_frames** — Maximum number of frames sent per video to avoid exceeding the context length (default `16`).
+
+**Audio controls:**
+- **enable_audio** — Encode and send audio references to the API. Only enable if the model supports audio input. Audio is converted to base64 WAV.
 
 #### Key Features
 
-- **Vision Support** — Connect an image input for multimodal LLMs (LLaVA, GPT-4o, etc.). Images are automatically converted to base64 for the API.
+- **Vision Support** — Connect image inputs for multimodal LLMs (LLaVA, GPT-4o, etc.). Images are automatically converted to base64 for the API.
+- **Video Support** — Connect reference videos; frames are sampled and sent as images for video understanding.
+- **Audio Support** — Connect reference audio (standalone or video soundtracks) and send them as WAV to audio-capable models.
 - **Thinking / Reasoning Mode** — Enable **thinking** to separate the model's reasoning chain from its final answer. Uses custom tags (`<think>` / `</think>` by default). Reasoning goes to the `reasoning` output, the answer to the `text` output.
 - **Dual Output** — `text` (final answer) and `reasoning` (extracted thinking process).
+- **Context Length Control** — Set **context_length** to control the context window (`num_ctx` / `n_ctx`). Set to `-1` or `0` to let the server use its default.
 
 #### Other Options Quick Reference
 
@@ -46,7 +73,13 @@ You can also type model names directly into the **model** / **model_NoVision** t
 | **cache_prompt** | Tells the server to cache prompts for faster repeated responses | Server supports caching (e.g., vLLM) |
 | **clean_comfy_vram_before_gen** | Frees ComfyUI GPU memory before sending the LLM request | Limited VRAM |
 | **unload_after_gen** | Sends an unload command to the server after generation | Using vLLM, Ollama, LocalAI, etc. |
+| **unload_endpoint** | API endpoint path used for the general unload request | Custom server unload path |
 | **llama_cpp_unload** | Unloads via llama.cpp-specific endpoint | Using a llama.cpp server |
+| **llama_endpoint** | llama.cpp unload API endpoint path | Using a llama.cpp server |
+| **context_length** | Context window size (`num_ctx` / `n_ctx`); `-1`/`0` uses server default | Control memory usage / context size |
+| **video_fps** | Frames per second sampled from each reference video | Using video inputs |
+| **max_video_frames** | Max frames sent per video (avoids exceeding context length) | Using video inputs |
+| **enable_audio** | Encode and send audio references to the API | Model supports audio input |
 
 ### 2. Images Pixels Compare
 This node is used to compare whether two input images are exactly the same (pixel-level comparison) and outputs a boolean value.

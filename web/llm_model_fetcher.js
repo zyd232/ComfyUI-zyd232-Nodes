@@ -33,6 +33,7 @@ const SAVED_WIDGETS = [
     "top_k",
     "seed",
     "context_length",
+    "timeout",
     "thinking",
     "think_start_tag",
     "think_end_tag",
@@ -41,7 +42,10 @@ const SAVED_WIDGETS = [
     "unload_endpoint",
     "llama_cpp_unload",
     "llama_endpoint",
-    "cache_prompt"
+    "cache_prompt",
+    "video_fps",
+    "max_video_frames",
+    "enable_audio"
 ];
 
 // Update a widget's value based on widget type, handling type coercion

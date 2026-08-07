@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import re
+import struct
 import urllib.request
 import urllib.error
 import torch
@@ -13,6 +14,8 @@ from aiohttp import web
 
 import gc
 import comfy.model_management
+
+from comfy_api.latest import io
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(PLUGIN_ROOT, "cache")
@@ -59,6 +62,7 @@ SAVED_FIELDS = [
     "top_k",
     "seed",
     "context_length",
+    "timeout",
     "thinking",
     "think_start_tag",
     "think_end_tag",
@@ -68,6 +72,9 @@ SAVED_FIELDS = [
     "llama_cpp_unload",
     "llama_endpoint",
     "cache_prompt",
+    "video_fps",
+    "max_video_frames",
+    "enable_audio",
 ]
 
 # Mask placeholder shown in frontend when api_key has been saved
@@ -155,14 +162,14 @@ async def fetch_models_endpoint(request):
         if api_key.startswith("ENV:"):
             env_var_name = api_key.split("ENV:")[1].strip()
             api_key = os.environ.get(env_var_name, "")
-        
+
         v1_url = base_url if (base_url.endswith("/v1") or base_url.endswith("/v1/")) else f"{base_url}/v1"
         models_url = f"{v1_url}/models"
-        
+
         auth_key = "".join(["Auth", "oriza", "tion"])
         auth_val = f"{'Bea' + 'rer'} {api_key}"
         headers = {auth_key: auth_val, "Content-Type": "application/json"}
-        
+
         def fetch_url(url):
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=5) as response:
@@ -175,11 +182,11 @@ async def fetch_models_endpoint(request):
                 data = fetch_url(f"{base_url}/models")
             else:
                 raise e
-            
+
         fetched_models = []
         if "data" in data and isinstance(data["data"], list):
             fetched_models = [item["id"] for item in data["data"] if "id" in item]
-            
+
         if fetched_models:
             save_cached_models(fetched_models)
             return web.json_response({"success": True, "models": fetched_models})
@@ -262,108 +269,242 @@ async def load_config_endpoint(request):
         return web.json_response({"success": False, "error": str(e)})
 
 
-# ======================= Node Class =======================
+# ======================= Node Class (V3 API) =======================
 
-class zyd232_LLMGenerator:
+class zyd232_LLMGeneratorV3(io.ComfyNode):
     _CHOICE_PLACEHOLDER = "Choose a model from the list"
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
+    def define_schema(cls):
+        return io.Schema(
+            node_id="zyd232 LLMGenerator",
+            display_name="LLM Text Generator",
+            category="zyd232 Nodes/LLM",
+            description=(
+                "Generate text from any OpenAI-compatible server. Supports multiple "
+                "reference images, videos and audio. Connect image_0 to reveal image_1, "
+                "and so on (same pattern as MiniMax H3 Reference to Video)."
+            ),
+            inputs=[
                 # --- Configuration management widgets --- #
-                "config_select": (("Default",),
-                    {"tooltip": "Choose a saved server preset"}),
-                "config_name": ("STRING",
-                    {"default": "Default", "tooltip": "Name for this preset; illegal characters are removed automatically"}),
+                io.Combo.Input("config_select", options=list_config_files() or ["Default"],
+                    tooltip="Choose a saved server preset"),
+                io.String.Input("config_name", default="Default",
+                    tooltip="Name for this preset; illegal characters are removed automatically"),
 
                 # --- Connection settings --- #
-                "base_url": ("STRING", {"default": "http://127.0.0.1:8080", 
-                    "tooltip": "AI service URL, e.g. Ollama or vLLM endpoint"}),
-                "api_key": ("STRING", {"default": "sk-no-key-required", "password": True, 
-                    "tooltip": "API key, or ENV:var_name to read from environment"}),
+                io.String.Input("base_url", default="http://127.0.0.1:8080",
+                    tooltip="AI service URL, e.g. Ollama or vLLM endpoint"),
+                io.String.Input("api_key", default="sk-no-key-required",
+                    tooltip="API key, or ENV:var_name to read from environment"),
 
                 # --- Model selection (COMBO selector first, then STRING free input) --- #
-                "model_select": ((cls._CHOICE_PLACEHOLDER,),
-                    {"tooltip": "Dropdown to select a vision model. Selection will fill the 'model' field below."}),
-                "model": ("STRING", {"default": "",
-                    "tooltip": "Vision model name (free input). Can be typed manually or selected from the dropdown above."}),
-                "model_NoVision_select": ((cls._CHOICE_PLACEHOLDER,),
-                    {"tooltip": "Dropdown to select a text-only model. Selection will fill the 'model_NoVision' field below."}),
-                "model_NoVision": ("STRING", {"default": "",
-                    "tooltip": "Text-only model name (free input). Used when no image is provided."}),
+                io.Combo.Input("model_select", options=[cls._CHOICE_PLACEHOLDER],
+                    tooltip="Dropdown to select a vision model. Selection will fill the 'model' field below."),
+                io.String.Input("model", default="",
+                    tooltip="Vision model name (free input). Can be typed manually or selected from the dropdown above."),
+                io.Combo.Input("model_NoVision_select", options=[cls._CHOICE_PLACEHOLDER],
+                    tooltip="Dropdown to select a text-only model. Selection will fill the 'model_NoVision' field below."),
+                io.String.Input("model_NoVision", default="",
+                    tooltip="Text-only model name (free input). Used when no image/video/audio is provided."),
 
                 # --- Prompts --- #
-                "system_prompt": ("STRING", {"multiline": True, "default": "You are a helpful AI assistant.", 
-                    "tooltip": "System prompt that defines the AI's role and behavior"}),
-                "user_prompt": ("STRING", {"multiline": True, "default": "Describe this image or answer my question.", 
-                    "tooltip": "Your question or instruction for the AI"}),
+                io.String.Input("system_prompt", multiline=True, default="You are a helpful AI assistant.",
+                    tooltip="System prompt that defines the AI's role and behavior"),
+                io.String.Input("user_prompt", multiline=True, default="Describe this image or answer my question.",
+                    tooltip="Your question or instruction for the AI"),
 
                 # --- Sampling parameters --- #
-                "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.05, 
-                    "tooltip": "Randomness: higher is more creative, lower is more stable"}),
-                "top_k": ("INT", {"default": 40, "min": 1, "max": 100, 
-                    "tooltip": "Pick next word from top K candidates"}),
-                "seed": ("INT", {"default": -1, "min": -1, "max": 0xffffffffffffffff, 
-                    "tooltip": "Random seed for reproducibility, -1 for random"}),
-                "context_length": ("INT", {"default": 2048, "min": -1, "max": 128000, "step": 256, 
-                    "tooltip": "Context window size. Set to -1 or 0 to omit num_ctx/n_ctx and let the server use its default context length"}),
+                io.Float.Input("temperature", default=0.7, min=0.0, max=2.0, step=0.05,
+                    tooltip="Randomness: higher is more creative, lower is more stable"),
+                io.Int.Input("top_k", default=40, min=1, max=100,
+                    tooltip="Pick next word from top K candidates"),
+                io.Int.Input("seed", default=-1, min=-1, max=0xffffffffffffffff,
+                    tooltip="Random seed for reproducibility, -1 for random"),
+                io.Int.Input("context_length", default=2048, min=-1, max=128000, step=256,
+                    tooltip="Context window size. Set to -1 or 0 to omit num_ctx/n_ctx and let the server use its default context length"),
+                io.Int.Input("timeout", default=180, min=1, max=3600, step=1,
+                    tooltip="Timeout in seconds for the LLM generation request"),
 
                 # --- Extended features (static, fixed array indices) --- #
-                "thinking": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", 
-                    "tooltip": "Separate AI's thinking process from final answer"}),
-                "think_start_tag": ("STRING", {"default": "<think>", 
-                    "tooltip": "Opening tag to mark the start of thinking content"}),
-                "think_end_tag": ("STRING", {"default": "</think>", 
-                    "tooltip": "Closing tag to mark the end of thinking content"}),
+                io.Boolean.Input("thinking", default=False, label_on="Enable", label_off="Disable",
+                    tooltip="Separate AI's thinking process from final answer"),
+                io.String.Input("think_start_tag", default="<think>",
+                    tooltip="Opening tag to mark the start of thinking content"),
+                io.String.Input("think_end_tag", default="</think>",
+                    tooltip="Closing tag to mark the end of thinking content"),
 
-                "clean_comfy_vram_before_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", 
-                    "tooltip": "Clear ComfyUI VRAM before generation to avoid OOM"}),
+                io.Boolean.Input("clean_comfy_vram_before_gen", default=False, label_on="Enable", label_off="Disable",
+                    tooltip="Clear ComfyUI VRAM before generation to avoid OOM"),
 
-                "unload_after_gen": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", 
-                    "tooltip": "Unload model after generation to free VRAM"}),
-                "unload_endpoint": ("STRING", {"default": "/v1/models/unload", 
-                    "tooltip": "API endpoint path for unloading the model"}),
+                io.Boolean.Input("unload_after_gen", default=False, label_on="Enable", label_off="Disable",
+                    tooltip="Unload model after generation to free VRAM"),
+                io.String.Input("unload_endpoint", default="/v1/models/unload",
+                    tooltip="API endpoint path for unloading the model"),
 
-                "llama_cpp_unload": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", 
-                    "tooltip": "Unload model via llama.cpp-specific endpoint"}),
-                "llama_endpoint": ("STRING", {"default": "/models/unload", 
-                    "tooltip": "llama.cpp unload API endpoint path"}),
+                io.Boolean.Input("llama_cpp_unload", default=False, label_on="Enable", label_off="Disable",
+                    tooltip="Unload model via llama.cpp-specific endpoint"),
+                io.String.Input("llama_endpoint", default="/models/unload",
+                    tooltip="llama.cpp unload API endpoint path"),
 
-                "cache_prompt": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", 
-                    "tooltip": "Cache prompts to speed up repeated requests"}),
-            },
-            "optional": {
-                "image": ("IMAGE", {"tooltip": "Optional: pass an image for vision model analysis"}),
-            }
-        }
+                io.Boolean.Input("cache_prompt", default=True, label_on="Enable", label_off="Disable",
+                    tooltip="Cache prompts to speed up repeated requests"),
 
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("text", "reasoning")
-    FUNCTION = "generate_text"
-    CATEGORY = "zyd232 Nodes/LLM"
-    NAME = "LLM Text Generator"
+                # --- Multimodal sampling controls --- #
+                io.Float.Input("video_fps", default=1.0, min=0.1, max=30.0, step=0.1,
+                    tooltip="Frames per second sampled from each reference video"),
+                io.Int.Input("max_video_frames", default=16, min=1, max=128,
+                    tooltip="Maximum number of frames sent per video (to avoid exceeding context length)"),
+                io.Boolean.Input("enable_audio", default=False, label_on="Enable", label_off="Disable",
+                    tooltip="Encode and send audio references to the API (only if the model supports audio)"),
 
-    def tensor_to_base64(self, tensor):
-        image_np = tensor[0].cpu().numpy() * 255.0
+                # --- Dynamic multimodal inputs (Autogrow) --- #
+                io.Autogrow.Input("images", optional=True,
+                    template=io.Autogrow.TemplatePrefix(
+                        input=io.Image.Input("image", tooltip="Reference image for vision model analysis"),
+                        prefix="image_", min=0, max=9)),
+                io.Autogrow.Input("videos", optional=True,
+                    template=io.Autogrow.TemplatePrefix(
+                        input=io.Image.Input("video", tooltip="Reference video frames [B,H,W,C] at native fps"),
+                        prefix="video_", min=0, max=3)),
+                io.Autogrow.Input("video_audios", optional=True,
+                    template=io.Autogrow.TemplatePrefix(
+                        input=io.Audio.Input("video_audio", tooltip="Soundtrack of the same-numbered reference video"),
+                        prefix="video_audio_", min=0, max=3)),
+                io.Autogrow.Input("audios", optional=True,
+                    template=io.Autogrow.TemplatePrefix(
+                        input=io.Audio.Input("audio", tooltip="Standalone reference audio"),
+                        prefix="audio_", min=0, max=5)),
+            ],
+            outputs=[
+                io.String.Output(display_name="text"),
+                io.String.Output(display_name="reasoning"),
+            ],
+        )
+
+    # ======================= Media encoding helpers =======================
+
+    @staticmethod
+    def tensor_to_base64(tensor):
+        """Convert a single image tensor [H,W,C] or [1,H,W,C] to base64 PNG."""
+        if tensor.ndim == 4:
+            image_np = tensor[0].cpu().numpy() * 255.0
+        else:
+            image_np = tensor.cpu().numpy() * 255.0
         image_np = np.clip(image_np, 0, 255).astype(np.uint8)
         img = Image.fromarray(image_np)
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    def generate_text(self, base_url, api_key,
-                      # Config widgets (placeholders, do not forward) — order: select, name
-                      config_select, config_name,
-                      model_select, model, model_NoVision_select, model_NoVision,
-                      system_prompt, user_prompt,
-                      temperature, top_k, seed, context_length,
-                      thinking, think_start_tag, think_end_tag,
-                      clean_comfy_vram_before_gen,
-                      unload_after_gen, unload_endpoint,
-                      llama_cpp_unload, llama_endpoint,
-                      cache_prompt,
-                      image=None):
+    @staticmethod
+    def audio_to_base64_wav(audio):
+        """Convert an audio dict {waveform:[B,C,T], sample_rate:int} to base64 WAV."""
+        waveform = audio["waveform"]
+        sample_rate = audio["sample_rate"]
+        # Take first batch item, mix to mono if needed
+        wav = waveform[0]  # [C, T]
+        if wav.ndim == 1:
+            wav = wav.unsqueeze(0)
+        if wav.shape[0] > 1:
+            wav = wav.mean(dim=0, keepdim=True)
+        wav = wav.cpu().numpy()
+        # Convert float [-1,1] to int16
+        wav = np.clip(wav, -1.0, 1.0)
+        pcm = (wav * 32767.0).astype(np.int16)
+
+        num_channels = 1
+        sample_width = 2  # 16-bit
+        frame_rate = int(sample_rate)
+        num_frames = pcm.shape[-1]
+        byte_rate = frame_rate * num_channels * sample_width
+        block_align = num_channels * sample_width
+
+        data = pcm.tobytes()
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF", 36 + len(data), b"WAVE",
+            b"fmt ", 16, 1, num_channels, frame_rate, byte_rate, block_align, sample_width,
+            b"data", len(data),
+        )
+        return base64.b64encode(header + data).decode("utf-8")
+
+    @classmethod
+    def _collect_images(cls, images):
+        """Return ordered list of (index, tensor) from autogrow 'images'.
+
+        ``index`` is the 0-based slot number parsed from the input key
+        (image_0 -> 0, image_1 -> 1, ...). Callers should add 1 to produce
+        a 1-based label for the LLM.
+        """
+        result = []
+        for key, img in (images or {}).items():
+            if img is None:
+                continue
+            idx = cls._parse_index(key)
+            result.append((idx, img))
+        # Sort by slot index so image_0 always comes before image_1
+        result.sort(key=lambda item: item[0])
+        return result
+
+    @staticmethod
+    def _parse_index(key):
+        """Extract the trailing integer from an autogrow key like 'image_3'."""
+        m = re.search(r"_(\d+)\s*$", str(key))
+        if m:
+            return int(m.group(1))
+        return 0
+
+    @classmethod
+    def _collect_video_frames(cls, videos, video_fps, max_video_frames):
+        """Return list of (video_index, frame_index, frame_tensor, timestamp_seconds).
+
+        ``video_index`` is the 0-based slot number parsed from the input key
+        (video_0 -> 0, video_1 -> 1, ...). ``frame_index`` is the 0-based
+        position of the sampled frame within that video. Callers should add 1
+        to both to produce 1-based labels (video_1_frame_1, ...).
+
+        The video input is a raw frame tensor [B, H, W, C] (B = frame count) with no
+        frame-rate metadata, so ``video_fps`` is interpreted as a sampling density:
+        roughly ``video_fps`` frames are kept per second of video, capped by
+        ``max_video_frames``. Frames are sampled uniformly across the clip.
+        """
+        result = []
+        for key, video in (videos or {}).items():
+            if video is None:
+                continue
+            video_index = cls._parse_index(key)
+            # video: [B, H, W, C], B = frame count
+            total = video.shape[0]
+            if total == 0:
+                continue
+            # Estimate the number of frames to keep based on sampling density.
+            # Without a known source fps we treat video_fps as "frames kept per
+            # 24 source frames" (a common video fps), then clamp to the hard cap.
+            density = max(0.1, float(video_fps))
+            n = int(round(total * min(1.0, density / 24.0)))
+            n = max(1, min(n, max_video_frames, total))
+            # Uniformly sample n indices across the video
+            indices = np.linspace(0, total - 1, n).astype(int)
+            for frame_index, i in enumerate(indices):
+                result.append((video_index, frame_index, video[i], float(i)))
+        # Sort by video slot index so video_0 frames come before video_1 frames
+        result.sort(key=lambda item: (item[0], item[1]))
+        return result
+
+    @classmethod
+    def execute(cls, base_url, api_key,
+                config_select, config_name,
+                model_select, model, model_NoVision_select, model_NoVision,
+                system_prompt, user_prompt,
+                temperature, top_k, seed, context_length, timeout,
+                thinking, think_start_tag, think_end_tag,
+                clean_comfy_vram_before_gen,
+                unload_after_gen, unload_endpoint,
+                llama_cpp_unload, llama_endpoint,
+                cache_prompt,
+                video_fps, max_video_frames, enable_audio,
+                images=None, videos=None, video_audios=None, audios=None) -> io.NodeOutput:
 
         # --- Resolve api_key: prefer stored config file; fall back to widget value ---
         resolved_api_key = api_key.strip() if api_key else ""
@@ -378,7 +519,6 @@ class zyd232_LLMGenerator:
             if stored_api_key:
                 resolved_api_key = stored_api_key
             # else: keep empty (no fallback possible)
-        # else: whatever the user typed in widget takes precedence over stored
 
         # --- ENV: prefix processing ---
         actual_key = resolved_api_key
@@ -419,17 +559,17 @@ class zyd232_LLMGenerator:
                 print("[zyd232 LLM] ComfyUI VRAM purged successfully.")
             except Exception as e:
                 print(f"[zyd232 LLM] Purge execution error: {e}")
-        
+
         clean_base_url = base_url.strip().rstrip("/")
         v1_url = clean_base_url if (clean_base_url.endswith("/v1") or clean_base_url.endswith("/v1/")) else f"{clean_base_url}/v1"
         chat_url = f"{v1_url}/chat/completions"
-        
+
         auth_key = "".join(["Auth", "oriza", "tion"])
         auth_val = f"{'Bea' + 'rer'} {actual_key}"
         headers = {auth_key: auth_val, "Content-Type": "application/json"}
-        
+
         messages = []
-        
+
         adjusted_system_prompt = system_prompt
         if not thinking:
             extra_instruction = " Please provide the direct answer immediately. Do NOT output any thinking process or internal reasoning."
@@ -438,23 +578,97 @@ class zyd232_LLMGenerator:
         if adjusted_system_prompt.strip():
             messages.append({"role": "system", "content": adjusted_system_prompt})
 
-        if image is not None:
-            base64_image = self.tensor_to_base64(image)
-            messages.append({
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
-                ]
-            })
-        else:
-            messages.append({"role": "user", "content": user_prompt})
+        # ======================= Build multimodal user content =======================
+        # Collect all media with their 0-based slot indices so we can label them
+        # with 1-based tags for the LLM (image_0 -> image_1, video_0 -> video_1, ...).
+        all_images = cls._collect_images(images)          # [(idx, tensor)]
+        video_frames = cls._collect_video_frames(videos, video_fps, max_video_frames)  # [(v_idx, f_idx, frame, ts)]
+
+        # Collect audio separately so video_audios and audios keep distinct labels.
+        video_audio_items = []  # [(idx, audio)]
+        for key, a in (video_audios or {}).items():
+            if a is not None:
+                video_audio_items.append((cls._parse_index(key), a))
+        video_audio_items.sort(key=lambda item: item[0])
+
+        audio_items = []  # [(idx, audio)]
+        for key, a in (audios or {}).items():
+            if a is not None:
+                audio_items.append((cls._parse_index(key), a))
+        audio_items.sort(key=lambda item: item[0])
+
+        has_media = bool(all_images) or bool(video_frames) or bool(video_audio_items) or bool(audio_items)
+
+        # Start with the user prompt text.
+        content = [{"type": "text", "text": user_prompt}]
+
+        # Build a media manifest overview so the model knows what is coming and
+        # in what order. Only include categories that are actually present.
+        if has_media:
+            manifest_lines = ["[媒体清单 Media manifest]"]
+            if all_images:
+                manifest_lines.append("图片 Images: " + ", ".join(f"image_{idx + 1}" for idx, _ in all_images))
+            if video_frames:
+                # Group frame counts per video for the manifest.
+                video_frame_counts = {}
+                for v_idx, f_idx, _frame, _ts in video_frames:
+                    video_frame_counts[v_idx] = video_frame_counts.get(v_idx, 0) + 1
+                manifest_lines.append(
+                    "视频 Videos: "
+                    + ", ".join(f"video_{v_idx + 1} (共{count}帧)" for v_idx, count in sorted(video_frame_counts.items()))
+                )
+            if video_audio_items and enable_audio:
+                manifest_lines.append("视频音频 Video audio: " + ", ".join(f"video_audio_{idx + 1}" for idx, _ in video_audio_items))
+            if audio_items and enable_audio:
+                manifest_lines.append("独立音频 Audio: " + ", ".join(f"audio_{idx + 1}" for idx, _ in audio_items))
+            manifest_lines.append("请按上述编号引用对应的图片、视频帧或音频。")
+            content.append({"type": "text", "text": "\n".join(manifest_lines)})
+
+        # Append each image with a 1-based label right before it.
+        for idx, img in all_images:
+            content.append({"type": "text", "text": f"[image_{idx + 1}]"})
+            b64 = cls.tensor_to_base64(img)
+            content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+        # Append each sampled video frame with a per-video 1-based label.
+        for v_idx, f_idx, frame, _ts in video_frames:
+            content.append({"type": "text", "text": f"[video_{v_idx + 1}_frame_{f_idx + 1}]"})
+            b64 = cls.tensor_to_base64(frame)
+            content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+        # Append audio (video_audios + audios) if enabled, each with its own label.
+        if video_audio_items or audio_items:
+            if enable_audio:
+                for idx, a in video_audio_items:
+                    try:
+                        content.append({"type": "text", "text": f"[video_audio_{idx + 1}]"})
+                        b64 = cls.audio_to_base64_wav(a)
+                        content.append({"type": "input_audio", "input_audio": {
+                            "data": f"data:audio/wav;base64,{b64}",
+                            "format": "wav",
+                        }})
+                    except Exception as e:
+                        print(f"[zyd232 LLM] Failed to encode video audio: {e}")
+                for idx, a in audio_items:
+                    try:
+                        content.append({"type": "text", "text": f"[audio_{idx + 1}]"})
+                        b64 = cls.audio_to_base64_wav(a)
+                        content.append({"type": "input_audio", "input_audio": {
+                            "data": f"data:audio/wav;base64,{b64}",
+                            "format": "wav",
+                        }})
+                    except Exception as e:
+                        print(f"[zyd232 LLM] Failed to encode audio: {e}")
+            else:
+                print("[zyd232 LLM] Audio references provided but 'enable_audio' is disabled; skipping audio.")
+
+        messages.append({"role": "user", "content": content})
 
         # Decide which model to use
-        if image is None:
-            actual_model = model_NoVision
-        else:
+        if has_media:
             actual_model = model
+        else:
+            actual_model = model_NoVision
 
         payload = {
             "model": actual_model, "messages": messages, "temperature": temperature,
@@ -463,7 +677,7 @@ class zyd232_LLMGenerator:
         if context_length not in [-1, 0]:
             payload["num_ctx"] = context_length
             payload["n_ctx"] = context_length
-        
+
         if not thinking:
             payload["thinking_config"] = {"mode": "none"}
         if seed != -1: payload["seed"] = seed
@@ -474,7 +688,7 @@ class zyd232_LLMGenerator:
         reasoning = ""
         final_text = ""
 
-        def send_post(url, payload_dict, timeout_sec=120):
+        def send_post(url, payload_dict, timeout_sec=timeout):
             req = urllib.request.Request(
                 url, data=json.dumps(payload_dict).encode('utf-8'),
                 headers=headers, method='POST'
@@ -490,7 +704,7 @@ class zyd232_LLMGenerator:
             except urllib.error.HTTPError as e:
                 if e.code == 404 and "/v1" not in clean_base_url:
                     res_json = send_post(f"{clean_base_url}/chat/completions", payload)
-                elif image is None and actual_model != model and e.code not in [200, 204]:
+                elif not has_media and actual_model != model and e.code not in [200, 204]:
                     # Fallback: model_NoVision failed, fall back to model
                     print(f"[zyd232 LLM] model_NoVision '{actual_model}' failed (HTTP {e.code}), falling back to model: {model}")
                     actual_model = model
@@ -505,7 +719,7 @@ class zyd232_LLMGenerator:
                             raise e2
                 else:
                     raise e
-            
+
             choices = res_json.get("choices", [])
             if choices:
                 message = choices[0].get("message", {})
@@ -561,7 +775,8 @@ class zyd232_LLMGenerator:
             except Exception as e:
                 print(f"[zyd232 LLM] llama.cpp Unload request failed: {e}")
 
-        return (final_text, reasoning)
+        return io.NodeOutput(final_text, reasoning)
 
-NODE_CLASS_MAPPINGS = {"zyd232 LLMGenerator": zyd232_LLMGenerator}
+
+NODE_CLASS_MAPPINGS = {"zyd232 LLMGenerator": zyd232_LLMGeneratorV3}
 NODE_DISPLAY_NAME_MAPPINGS = {"zyd232 LLMGenerator": "LLM Text Generator"}
