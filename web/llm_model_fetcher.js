@@ -1,6 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { createFullWidthButton, createMultiButtonRow } from "./button_utils.js";
+import { setupStreamingPanel } from "./streaming_text.js";
 
 const MODEL_PLACEHOLDER = "Choose a model from the list";
 const API_KEY_MASKED = "********";
@@ -69,6 +70,9 @@ app.registerExtension({
     name: "zyd232.LLMModelFetcher",
     async nodeCreated(node) {
         if (node.comfyClass !== "zyd232 LLMGenerator") return;
+
+        // Set up the streaming text display panel on the right side of the node.
+        setupStreamingPanel(node);
 
         // ---- Core widgets (already existed) ----
         const baseUrlWidget = node.widgets.find(w => w.name === "base_url");

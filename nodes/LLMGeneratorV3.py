@@ -17,6 +17,7 @@ import gc
 import comfy.model_management
 
 from comfy_api.latest import io
+from comfy_execution.utils import get_executing_context
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(PLUGIN_ROOT, "cache")
@@ -285,6 +286,30 @@ async def load_config_endpoint(request):
         return web.json_response({"success": True, "config": config})
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)})
+
+
+# ======================= Streaming Event Helper =======================
+
+def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=False):
+    """Push an incremental streaming-text chunk to the frontend over WebSocket.
+
+    The frontend listens for the ``zyd232/stream_text`` event and appends the
+    chunk to the matching LLM Generator node's display panel in real time.
+
+    ``node_id`` is the ComfyUI node id of the executing LLM Generator node, used
+    by the frontend to correlate the chunk to the correct node instance.
+    """
+    try:
+        print(f"[zyd232 LLM] push stream event: node_id={node_id!r} done={done} content_len={len(content or '')} reasoning_len={len(reasoning_content or '')}")
+        PromptServer.instance.send_sync("zyd232/stream_text", {
+            "node_id": node_id,
+            "content": content or "",
+            "reasoning_content": reasoning_content or "",
+            "done": bool(done),
+            "stopped": bool(stopped),
+        })
+    except Exception as e:
+        print(f"[zyd232 LLM] Failed to push stream event: {e}")
 
 
 # ======================= Stop Helper =======================
@@ -576,6 +601,16 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 video_fps, max_video_frames, enable_audio,
                 images=None, videos=None, video_audios=None, audios=None) -> io.NodeOutput:
 
+        # --- Resolve the current node id so the frontend can correlate streamed
+        # text chunks to this specific node instance. ---
+        node_id = None
+        try:
+            executing_context = get_executing_context()
+            if executing_context is not None:
+                node_id = getattr(executing_context, "node_id", None)
+        except Exception:
+            node_id = None
+
         # --- Resolve api_key: prefer stored config file; fall back to widget value ---
         resolved_api_key = api_key.strip() if api_key else ""
         config_name_raw = (config_name or "").strip()
@@ -808,12 +843,20 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     if not choices:
                         continue
                     delta = choices[0].get("delta") or {}
-                    acc_text += delta.get("content") or ""
-                    acc_reasoning += delta.get("reasoning_content") or ""
+                    delta_text = delta.get("content") or ""
+                    delta_reasoning = delta.get("reasoning_content") or ""
+                    acc_text += delta_text
+                    acc_reasoning += delta_reasoning
+                    # Push the incremental chunk to the frontend so the streaming
+                    # text can be displayed in real time on the node's panel.
+                    if delta_text or delta_reasoning:
+                        _push_stream_event(node_id, delta_text, delta_reasoning, done=False, stopped=False)
                     # If the Stop button was pressed, stop accumulating and return
                     # whatever text has been received so far.
                     if _is_stopped():
                         break
+                # Signal completion so the frontend can finalize the display.
+                _push_stream_event(node_id, "", "", done=True, stopped=_is_stopped())
                 return acc_text, acc_reasoning
             finally:
                 try:
