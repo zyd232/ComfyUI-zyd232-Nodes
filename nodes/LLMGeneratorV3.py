@@ -4,6 +4,7 @@ import base64
 import re
 import struct
 import threading
+import uuid
 import urllib.request
 import urllib.error
 import torch
@@ -15,6 +16,7 @@ from aiohttp import web
 
 import gc
 import comfy.model_management
+import nodes
 
 from comfy_api.latest import io
 from comfy_execution.utils import get_executing_context
@@ -44,6 +46,27 @@ os.makedirs(PRESET_DIR, exist_ok=True)
 #   }
 _active_generation = {}
 _active_generation_lock = threading.Lock()
+
+# ======================= Last-Generation Stopped State =======================
+# Tracks whether the most recent LLM generation was stopped (incomplete) rather
+# than completed. This is consumed by ``fingerprint_inputs`` so that ComfyUI
+# re-executes the node on the next run after a Stop, while still caching the
+# result when the generation completed fully.
+_last_generation_stopped = False
+_last_generation_stopped_lock = threading.Lock()
+
+
+def _set_last_generation_stopped(value):
+    """Record whether the last generation was stopped (incomplete)."""
+    global _last_generation_stopped
+    with _last_generation_stopped_lock:
+        _last_generation_stopped = bool(value)
+
+
+def _get_last_generation_stopped():
+    """Return whether the last generation was stopped (incomplete)."""
+    with _last_generation_stopped_lock:
+        return _last_generation_stopped
 
 # ======================= Preset File Helpers =======================
 
@@ -346,6 +369,11 @@ async def stop_generation_endpoint(request):
 
     Closes the active streaming connection. The server stops generating when the
     SSE connection is dropped, and execute() returns the text accumulated so far.
+
+    Additionally, it interrupts the current ComfyUI workflow so that execution
+    does not continue to the downstream nodes after the LLM node returns. The
+    interrupt flag is consumed by the execution loop at the next node boundary
+    (before_node_execution), which aborts the rest of the prompt.
     """
     try:
         with _active_generation_lock:
@@ -356,9 +384,22 @@ async def stop_generation_endpoint(request):
 
         closed = _close_active_connection()
 
+        # Record that this generation was stopped (incomplete) so that
+        # fingerprint_inputs forces the node to re-run on the next execution.
+        _set_last_generation_stopped(True)
+
+        # Also abort the current workflow so downstream nodes do not run after
+        # the LLM node returns its partial text.
+        try:
+            nodes.interrupt_processing()
+            print("[zyd232 LLM] Workflow interrupted by Stop Generation.")
+        except Exception as e:
+            print(f"[zyd232 LLM] Failed to interrupt workflow: {e}")
+
         return web.json_response({
             "success": True,
             "connection_closed": closed,
+            "workflow_interrupted": True,
         })
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)})
@@ -476,6 +517,51 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 io.String.Output(display_name="reasoning"),
             ],
         )
+
+    @classmethod
+    def validate_inputs(cls, **kwargs) -> bool:
+        """Accept any input values.
+
+        The ``model_select`` / ``model_NoVision_select`` combo widgets are dynamic
+        selectors whose options are populated client-side (see web/llm_model_fetcher.js)
+        with real model names. Their value is only a convenience that copies into the
+        ``model`` / ``model_NoVision`` string fields, so it is irrelevant to execution.
+
+        However, when a workflow is saved while a combo holds a real model name (rather
+        than the placeholder), that value is persisted into the workflow JSON. ComfyUI's
+        generic combo validation would then reject it because the backend schema only
+        declares the placeholder as a valid option, producing a "Value not in list" error.
+
+        By defining ``validate_inputs(**kwargs)`` here, the generic combo validation is
+        bypassed (execution.py skips it when ``validate_has_kwargs`` is True) and we
+        accept any value, since the actual model used comes from the string fields.
+        """
+        return True
+
+    @classmethod
+    def fingerprint_inputs(cls, **kwargs):
+        """Control ComfyUI's node caching (V3 equivalent of V1's IS_CHANGED).
+
+        ComfyUI caches a node's output keyed by its inputs. Because this node
+        streams its result, a user-initiated Stop returns only partial text,
+        which ComfyUI would otherwise cache and reuse on the next run, skipping
+        the node entirely.
+
+        To fix that, we track whether the last generation was stopped
+        (incomplete). When it was, we return a *changing* value so ComfyUI
+        re-executes the node on the next run. When the generation completed
+        fully, we return a *stable* value so the completed result is cached and
+        the node is not re-run.
+
+        ``uuid.uuid4()`` is used for the changing value. It is a 128-bit random
+        value that is effectively guaranteed to differ on every call, so even
+        repeated Stop/run cycles (e.g. from a script) can never collide and
+        accidentally hit the cache. It also avoids any incrementing integer,
+        so there is no overflow risk.
+        """
+        if _get_last_generation_stopped():
+            return str(uuid.uuid4())
+        return "completed"
 
     # ======================= Media encoding helpers =======================
 
@@ -916,6 +1002,10 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 final_text = f"Error: {e}"
                 reasoning = ""
         finally:
+            # Record whether this generation was stopped (incomplete) so that
+            # fingerprint_inputs can force a re-run on the next execution. This
+            # must be captured before clearing the active-generation registry.
+            _set_last_generation_stopped(_is_stopped())
             # Always clear the active generation registry once execution finishes.
             _clear_active_generation()
 

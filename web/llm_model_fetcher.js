@@ -253,7 +253,7 @@ app.registerExtension({
             // ---- Button labels (used both for display and to locate the widgets
             // that addWidget appended to node.widgets) ----
             const BTN_SAVE = "\u{1F4BE} Save Config & Hide API";
-            const BTN_DELETE = "\u{1F5D1} Delete";
+            const BTN_DELETE = "\u{1F5D1} Delete Config";
             const BTN_REFRESH_CONFIG = "\u{1F504} Refresh Config List";
             const BTN_REFRESH_MODEL = "\u{1F504} Refresh Model List";
             const BTN_STOP = "\u{23F9} Stop Generation";
