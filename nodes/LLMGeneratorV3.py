@@ -3,6 +3,7 @@ import json
 import base64
 import re
 import struct
+import threading
 import urllib.request
 import urllib.error
 import torch
@@ -25,6 +26,23 @@ PRESET_FILE = os.path.join(PRESET_DIR, "llm_text_generator_presets.json")
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(PRESET_DIR, exist_ok=True)
+
+# ======================= Active Generation Registry =======================
+# Tracks the currently running LLM generation so the Stop button (handled on the
+# aiohttp event-loop thread) can interrupt the streaming request that runs on
+# ComfyUI's execution thread. During streaming the response object is available,
+# so closing it makes execute()'s readline() raise and return the partial text.
+#
+# Structure:
+#   {
+#       "base_url": str,          # cleaned base url of the service
+#       "model": str,             # model actually being used
+#       "api_key": str,           # resolved api key
+#       "response": object,       # the active streaming urllib response (may be None)
+#       "stopped": bool,          # set to True once a stop has been requested
+#   }
+_active_generation = {}
+_active_generation_lock = threading.Lock()
 
 # ======================= Preset File Helpers =======================
 
@@ -265,6 +283,58 @@ async def load_config_endpoint(request):
         if config is None:
             return web.json_response({"success": False, "error": "Config not found"})
         return web.json_response({"success": True, "config": config})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)})
+
+
+# ======================= Stop Helper =======================
+
+def _close_active_connection():
+    """Close the active streaming response to interrupt the running generation.
+
+    During streaming, the response object is available (urlopen has returned and
+    we are reading lines). Closing it makes execute()'s readline() raise, which is
+    caught and reported as a user-initiated stop.
+
+    Returns True if a connection was actually closed, False otherwise.
+    """
+    with _active_generation_lock:
+        gen = _active_generation
+        if not gen:
+            return False
+        response = gen.get("response")
+        # Mark as stopped so execute() can detect the interruption.
+        gen["stopped"] = True
+        closed = False
+        try:
+            if response is not None:
+                response.close()
+                closed = True
+        except Exception:
+            pass
+        return closed
+
+
+@PromptServer.instance.routes.post("/zyd232/stop_generation")
+async def stop_generation_endpoint(request):
+    """Stop the currently running LLM generation.
+
+    Closes the active streaming connection. The server stops generating when the
+    SSE connection is dropped, and execute() returns the text accumulated so far.
+    """
+    try:
+        with _active_generation_lock:
+            gen = dict(_active_generation) if _active_generation else None
+
+        if not gen:
+            return web.json_response({"success": False, "error": "No active generation to stop"})
+
+        closed = _close_active_connection()
+
+        return web.json_response({
+            "success": True,
+            "connection_closed": closed,
+        })
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)})
 
@@ -672,7 +742,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
 
         payload = {
             "model": actual_model, "messages": messages, "temperature": temperature,
-            "top_k": top_k
+            "top_k": top_k, "stream": True
         }
         if context_length not in [-1, 0]:
             payload["num_ctx"] = context_length
@@ -688,22 +758,78 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         reasoning = ""
         final_text = ""
 
+        # --- Register the active generation so the Stop button can interrupt it ---
+        with _active_generation_lock:
+            _active_generation.update({
+                "base_url": clean_base_url,
+                "model": actual_model,
+                "api_key": actual_key,
+                "response": None,
+                "stopped": False,
+            })
+
+        def _clear_active_generation():
+            with _active_generation_lock:
+                _active_generation.clear()
+
+        def _is_stopped():
+            with _active_generation_lock:
+                return bool(_active_generation.get("stopped"))
+
         def send_post(url, payload_dict, timeout_sec=timeout):
+            """Send a streaming (SSE) chat completion request and accumulate the result.
+
+            Returns a tuple (full_text, reasoning). The response object is kept in
+            the active-generation registry so the Stop button can close it, which
+            makes readline() raise and lets execute() return the partial text.
+            """
             req = urllib.request.Request(
                 url, data=json.dumps(payload_dict).encode('utf-8'),
                 headers=headers, method='POST'
             )
-            with urllib.request.urlopen(req, timeout=timeout_sec) as response:
-                res_body = response.read().decode('utf-8')
-                return json.loads(res_body) if res_body.strip() else {}
+            response = urllib.request.urlopen(req, timeout=timeout_sec)
+            with _active_generation_lock:
+                _active_generation["response"] = response
+            acc_text = ""
+            acc_reasoning = ""
+            try:
+                for raw_line in response:
+                    line = raw_line.decode('utf-8', errors='replace').strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[len("data:"):].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except Exception:
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    acc_text += delta.get("content") or ""
+                    acc_reasoning += delta.get("reasoning_content") or ""
+                    # If the Stop button was pressed, stop accumulating and return
+                    # whatever text has been received so far.
+                    if _is_stopped():
+                        break
+                return acc_text, acc_reasoning
+            finally:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+                with _active_generation_lock:
+                    _active_generation["response"] = None
 
         try:
             print(f"[zyd232 LLM] Sending request to {chat_url} with model: {actual_model}...")
             try:
-                res_json = send_post(chat_url, payload)
+                full_text, reasoning = send_post(chat_url, payload)
             except urllib.error.HTTPError as e:
                 if e.code == 404 and "/v1" not in clean_base_url:
-                    res_json = send_post(f"{clean_base_url}/chat/completions", payload)
+                    full_text, reasoning = send_post(f"{clean_base_url}/chat/completions", payload)
                 elif not has_media and actual_model != model and e.code not in [200, 204]:
                     # Fallback: model_NoVision failed, fall back to model
                     print(f"[zyd232 LLM] model_NoVision '{actual_model}' failed (HTTP {e.code}), falling back to model: {model}")
@@ -711,22 +837,14 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     payload["model"] = model
                     print(f"[zyd232 LLM] Retrying with fallback model: {model}...")
                     try:
-                        res_json = send_post(chat_url, payload)
+                        full_text, reasoning = send_post(chat_url, payload)
                     except urllib.error.HTTPError as e2:
                         if e2.code == 404 and "/v1" not in clean_base_url:
-                            res_json = send_post(f"{clean_base_url}/chat/completions", payload)
+                            full_text, reasoning = send_post(f"{clean_base_url}/chat/completions", payload)
                         else:
                             raise e2
                 else:
                     raise e
-
-            choices = res_json.get("choices", [])
-            if choices:
-                message = choices[0].get("message", {})
-                full_text = message.get("content", "")
-                reasoning = message.get("reasoning_content", "")
-            else:
-                full_text = res_json.get("response", json.dumps(res_json))
 
             final_text = full_text
 
@@ -745,8 +863,18 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 reasoning = ""
 
         except Exception as e:
-            final_text = f"Error: {e}"
-            reasoning = ""
+            # If the Stop button was pressed, the streaming connection was closed.
+            # Return the text accumulated so far instead of a raw connection error.
+            with _active_generation_lock:
+                was_stopped = bool(_active_generation.get("stopped"))
+            if was_stopped:
+                print("[zyd232 LLM] Generation stopped by user.")
+            else:
+                final_text = f"Error: {e}"
+                reasoning = ""
+        finally:
+            # Always clear the active generation registry once execution finishes.
+            _clear_active_generation()
 
         full_unload_url = f"{clean_base_url}/{unload_endpoint.lstrip('/')}"
         full_llama_url = f"{clean_base_url}/{llama_endpoint.lstrip('/')}"

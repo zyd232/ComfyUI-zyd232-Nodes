@@ -64,6 +64,7 @@ The node supports multiple reference images, videos and audio via autogrow input
 - **Audio Support** — Connect reference audio (standalone or video soundtracks) and send them as WAV to audio-capable models.
 - **Thinking / Reasoning Mode** — Enable **thinking** to separate the model's reasoning chain from its final answer. Uses custom tags (`<think>` / `</think>` by default). Reasoning goes to the `reasoning` output, the answer to the `text` output.
 - **Dual Output** — `text` (final answer) and `reasoning` (extracted thinking process).
+- **Stop Generation** — Click the **⏹ Stop Generation** button to interrupt the currently running request. The node uses streaming (SSE) generation; clicking Stop closes the active connection, which makes the server stop generating and the node return the text accumulated so far.
 - **Context Length Control** — Set **context_length** to control the context window (`num_ctx` / `n_ctx`). Set to `-1` or `0` to let the server use its default.
 
 #### Other Options Quick Reference

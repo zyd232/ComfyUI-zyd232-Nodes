@@ -263,6 +263,33 @@ app.registerExtension({
             node.widgets.splice(modelNoVisionIdx + 1, 0, refreshModelsBtn);
         }
 
+        // ============ Stop Generation Button ============
+        // Closes the active streaming connection so the running generation returns
+        // immediately with the text accumulated so far.
+        const stopBtn = createFullWidthButton(
+            "\u{23F9} Stop Generation",
+            async () => {
+                try {
+                    const res = await api.fetchApi("/zyd232/stop_generation", { method: "POST" });
+                    const data = await res.json();
+                    if (data && data.success) {
+                        console.log("[zyd232 LLM] Stop signal sent:", data.message || "");
+                    } else {
+                        console.warn("[zyd232 LLM] Stop failed:", data?.error || "No active generation");
+                    }
+                } catch (e) {
+                    console.error("[zyd232 LLM] Error sending stop signal:", e);
+                }
+            },
+            { name: "stop_generation" }
+        );
+
+        // Insert Stop button right after the Refresh Models button
+        const refreshModelsIdx = node.widgets.findIndex(w => w.name === "refresh_models");
+        if (refreshModelsIdx !== -1) {
+            node.widgets.splice(refreshModelsIdx + 1, 0, stopBtn);
+        }
+
         // ============ Wiring ============
 
         // --- config_select: when user chooses, load that config (skip placeholder logic) ---
