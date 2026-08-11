@@ -65,7 +65,10 @@ function createPanel(node) {
     Object.assign(textEl.style, {
         flex: "1",
         minHeight: "0", // allow the flex child to shrink so the scrollbar appears
+        height: "100%", // give the scroll container an explicit height so overflowY:auto triggers reliably
+        boxSizing: "border-box",
         overflowY: "auto",
+        overflowX: "hidden",
         padding: "6px 8px",
         fontSize: "11px",
         fontFamily: "monospace",
@@ -73,7 +76,41 @@ function createPanel(node) {
         wordBreak: "break-word",
         lineHeight: "1.4",
         color: "#e0e0e0",
+        // Cross-browser scrollbar styling. The floating window is scaled with
+        // transform: scale() (see floating_window.js), which can hide the native
+        // scrollbar. Explicit scrollbar styles force a visible, fixed-width
+        // scrollbar that survives the scale transform.
+        scrollbarWidth: "thin",          // Firefox
+        scrollbarColor: "#555 #2a2a2a",  // Firefox
     });
+
+    // WebKit/Blink (Chrome, Edge, Safari) scrollbar styling. These pseudo-element
+    // rules cannot be set via inline style, so inject a small <style> block once.
+    if (!window.__zyd232ScrollbarStyleInjected) {
+        window.__zyd232ScrollbarStyleInjected = true;
+        const style = document.createElement("style");
+        style.textContent = `
+            .zyd232-float-window ::-webkit-scrollbar {
+                width: 10px;
+                height: 10px;
+            }
+            .zyd232-float-window ::-webkit-scrollbar-track {
+                background: #2a2a2a;
+            }
+            .zyd232-float-window ::-webkit-scrollbar-thumb {
+                background: #555;
+                border-radius: 5px;
+                border: 2px solid #2a2a2a;
+            }
+            .zyd232-float-window ::-webkit-scrollbar-thumb:hover {
+                background: #666;
+            }
+            .zyd232-float-window ::-webkit-scrollbar-corner {
+                background: #2a2a2a;
+            }
+        `;
+        document.head.appendChild(style);
+    }
 
     const body = document.createElement("div");
     Object.assign(body.style, {

@@ -99,12 +99,35 @@ function applyWindowTransform(win) {
     // The window is positioned at (node.pos + geom.offset) in graph coords,
     // scaled to screen space. We use a transform so the window content scales
     // with the canvas zoom (matching the original streaming_text behavior).
-    const tf = `translate(${baseLeft + geom.x * scale}px,${baseTop + geom.y * scale}px) scale(${scale})`;
-    if (win._sig !== tf) {
-        panel.style.position = "fixed";
-        panel.style.transformOrigin = "top left";
-        panel.style.transform = tf;
-        win._sig = tf;
+    //
+    // IMPORTANT: When the canvas is at 100% zoom (scale === 1) we position the
+    // panel with plain left/top instead of a transform. A transform (even
+    // scale(1)) creates a new rendering context that can suppress the native
+    // scrollbar of inner overflow:auto containers in some browsers. Using
+    // left/top at scale 1 keeps the scrollbar fully visible and interactive.
+    const left = baseLeft + geom.x * scale;
+    const top = baseTop + geom.y * scale;
+    if (Math.abs(scale - 1) < 1e-6) {
+        const sig = `p:${left},${top}`;
+        if (win._sig !== sig) {
+            panel.style.position = "fixed";
+            panel.style.left = left + "px";
+            panel.style.top = top + "px";
+            panel.style.transform = "none";
+            win._sig = sig;
+        }
+    } else {
+        const tf = `translate(${left}px,${top}px) scale(${scale})`;
+        if (win._sig !== tf) {
+            panel.style.position = "fixed";
+            panel.style.transformOrigin = "top left";
+            panel.style.transform = tf;
+            // Clear any left/top left over from the scale===1 branch so they
+            // don't double-offset the transform.
+            panel.style.left = "0px";
+            panel.style.top = "0px";
+            win._sig = tf;
+        }
     }
 }
 
