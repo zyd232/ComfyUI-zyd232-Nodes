@@ -323,7 +323,6 @@ def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=
     by the frontend to correlate the chunk to the correct node instance.
     """
     try:
-        print(f"[zyd232 LLM] push stream event: node_id={node_id!r} done={done} content_len={len(content or '')} reasoning_len={len(reasoning_content or '')}")
         PromptServer.instance.send_sync("zyd232/stream_text", {
             "node_id": node_id,
             "content": content or "",

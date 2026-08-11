@@ -253,7 +253,6 @@ function renderText(node) {
 const nodeById = new Map();
 
 function handleStreamEvent(data) {
-    console.log("[zyd232 Stream] event received: node_id =", data.node_id, "done =", data.done, "content_len =", (data.content || "").length);
     const node = nodeById.get(String(data.node_id));
     if (!node) {
         console.log("[zyd232 Stream] no node found for id:", data.node_id, "registered ids:", [...nodeById.keys()]);
