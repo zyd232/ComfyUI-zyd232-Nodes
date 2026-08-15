@@ -14,9 +14,21 @@ A collection of custom nodes for [ComfyUI](https://github.com/comfyanonymous/Com
 
 ## 📦 Installation
 
-1. Place this plugin directory under `ComfyUI/custom_nodes/`.
-2. Restart ComfyUI.
-3. The nodes will appear under the **zyd232 Nodes** category.
+### Option 1: ComfyUI Manager (Recommended)
+
+1. Install [ComfyUI-Manager](https://github.com/ltdrdata/ComfyUI-Manager) if you haven't already.
+2. In ComfyUI, click **Manager** → **Custom Nodes Manager**.
+3. Search for `zyd232` or `ComfyUI-zyd232-Nodes`.
+4. Click **Install**, then restart ComfyUI.
+
+### Option 2: Git Clone
+
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/zyd232/ComfyUI-zyd232-Nodes.git
+```
+
+Restart ComfyUI. The nodes will appear under the **zyd232 Nodes** category.
 
 ---
 
