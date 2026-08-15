@@ -114,6 +114,7 @@ SAVED_FIELDS = [
     "llama_cpp_unload",
     "llama_endpoint",
     "cache_prompt",
+    "auto_lock",
     "video_fps",
     "max_video_frames",
     "enable_audio",
@@ -575,6 +576,9 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 io.Boolean.Input("cache_prompt", default=True, label_on="Enable", label_off="Disable",
                     tooltip="Cache prompts to speed up repeated requests"),
 
+                io.Boolean.Input("auto_lock", default=False, label_on="Enable", label_off="Disable",
+                    tooltip="When enabled, the Streaming Text panel automatically locks the result once generation completes"),
+
                 # --- Multimodal sampling controls --- #
                 io.Float.Input("video_fps", default=1.0, min=0.1, max=30.0, step=0.1,
                     tooltip="Frames per second sampled from each reference video"),
@@ -794,7 +798,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 clean_comfy_vram_before_gen,
                 unload_after_gen, unload_endpoint,
                 llama_cpp_unload, llama_endpoint,
-                cache_prompt,
+                cache_prompt, auto_lock,
                 video_fps, max_video_frames, enable_audio,
                 use_locked=False, locked_text="", locked_reasoning="",
                 images=None, videos=None, video_audios=None, audios=None) -> io.NodeOutput:

@@ -131,6 +131,14 @@ When you finish a generation, you can **lock** the result so it is stored inside
 - Locking an empty result is allowed (it simply locks an empty output).
 - Unlocking changes the node's inputs, which invalidates ComfyUI's cache and forces the node to re-run the LLM on the next execution.
 
+### Auto-lock
+
+The **auto_lock** toggle (a boolean button on the node, default **off**) automatically locks the result as soon as a generation **completes successfully**. When enabled, you no longer need to click the 🔒 button manually — the panel locks itself, persists the output into the workflow, and skips the LLM call on the next run.
+
+- Auto-lock only triggers on a **successful** completion. If you **Stop** a generation (incomplete result), it is **not** auto-locked.
+- If the result is already locked, auto-lock does nothing.
+- The `auto_lock` setting is saved with your config presets, so it persists across nodes and workflows.
+
 ---
 
 ## Thinking / Reasoning Mode
@@ -148,6 +156,7 @@ Enable **thinking** to separate the model's reasoning chain from its final answe
 | Parameter | What It Does | When to Enable |
 |-----------|-------------|----------------|
 | **cache_prompt** | Tells the server to cache prompts for faster repeated responses | Server supports caching (e.g., vLLM) |
+| **auto_lock** | Automatically locks the result once a generation completes successfully | You want to persist output without clicking 🔒 manually |
 | **clean_comfy_vram_before_gen** | Frees ComfyUI GPU memory before sending the LLM request | Limited VRAM |
 | **unload_after_gen** | Sends an unload command to the server after generation | Using vLLM, Ollama, LocalAI, etc. |
 | **unload_endpoint** | API endpoint path used for the general unload request | Custom server unload path |

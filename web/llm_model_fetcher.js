@@ -44,6 +44,7 @@ const SAVED_WIDGETS = [
     "llama_cpp_unload",
     "llama_endpoint",
     "cache_prompt",
+    "auto_lock",
     "video_fps",
     "max_video_frames",
     "enable_audio"
@@ -91,12 +92,21 @@ app.registerExtension({
             // Hide the locked-result persistence widgets. These are declared in
             // the backend schema (use_locked, locked_text, locked_reasoning) and
             // are serialized into the workflow JSON and passed to execute(), but
-            // they must not be visible in the node UI. Setting type to "hidden"
-            // keeps them out of the node's widget list while still serializing
-            // their values (serialize is not disabled).
+            // they must not be visible in the node UI.
+            //
+            // Simply setting w.type = "hidden" does NOT work here: ComfyUI decides
+            // whether to render a widget when it is created (addWidget), so by the
+            // time onNodeCreated runs the widgets are already in node.widgets and
+            // already rendered. Instead we override their draw/computeSize so they
+            // occupy zero height and render nothing, while keeping them in the
+            // node.widgets array so their values are still serialized into the
+            // workflow JSON and passed to execute().
             for (const hiddenName of ["use_locked", "locked_text", "locked_reasoning"]) {
                 const w = node.widgets.find(w => w.name === hiddenName);
-                if (w) w.type = "hidden";
+                if (w) {
+                    w.draw = function () { return 0; };
+                    w.computeSize = function () { return [0, -4]; };
+                }
             }
 
             // ---- Core widgets (already existed) ----

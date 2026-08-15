@@ -78,6 +78,41 @@ function setNodeLocked(node, locked, text, reasoning) {
     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
 }
 
+// Whether the node's "auto_lock" toggle is enabled. When enabled, the panel
+// automatically locks the result as soon as a generation completes.
+function isAutoLockEnabled(node) {
+    const w = node.widgets ? node.widgets.find(w => w.name === "auto_lock") : null;
+    return !!(w && w.value);
+}
+
+// Lock the current result: persist content/reasoning into the hidden locked_*
+// widgets and update the panel UI (button icon, Clear availability). Shared by
+// the manual 🔒 button and the auto_lock feature.
+function lockResult(node) {
+    const st = getState(node);
+    st.locked = true;
+    setNodeLocked(node, true, st.content, st.reasoning);
+    if (st.lockBtn) {
+        st.lockBtn.textContent = "🔒";
+        st.lockBtn.title = "Click to unlock the result: allow the node to call the LLM again on the next run";
+    }
+    if (st.updateClearButton) st.updateClearButton();
+    renderText(node);
+}
+
+// Unlock the current result: clear the locked state so the node re-runs the LLM.
+function unlockResult(node) {
+    const st = getState(node);
+    st.locked = false;
+    setNodeLocked(node, false, "", "");
+    if (st.lockBtn) {
+        st.lockBtn.textContent = "🔓";
+        st.lockBtn.title = "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
+    }
+    if (st.updateClearButton) st.updateClearButton();
+    renderText(node);
+}
+
 // ============ DOM Panel Creation ============
 
 function createPanel(node) {
@@ -201,21 +236,9 @@ function createPanel(node) {
         // clears that state so the node re-runs the LLM.
         const lockBtn = makeTitleButton("🔓", "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run", () => {
             if (st.locked) {
-                // Unlock: clear the locked state so the node re-runs the LLM.
-                st.locked = false;
-                setNodeLocked(node, false, "", "");
-                lockBtn.textContent = "🔓";
-                lockBtn.title = "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
-                updateClearButton();
-                renderText(node);
+                unlockResult(node);
             } else {
-                // Lock: persist the current content/reasoning.
-                st.locked = true;
-                setNodeLocked(node, true, st.content, st.reasoning);
-                lockBtn.textContent = "🔒";
-                lockBtn.title = "Click to unlock the result: allow the node to call the LLM again on the next run";
-                updateClearButton();
-                renderText(node);
+                lockResult(node);
             }
         });
 
@@ -391,6 +414,13 @@ function handleStreamEvent(data) {
         st.lastDone = true;
         if (data.stopped) {
             st.lastDone = false;
+        }
+        // Auto-lock: when the "auto_lock" toggle is enabled and the generation
+        // completed successfully (not stopped), automatically lock the result so
+        // it is persisted into the workflow and the LLM is skipped on the next
+        // run. A stopped (incomplete) generation is never auto-locked.
+        if (!data.stopped && !st.locked && isAutoLockEnabled(node)) {
+            lockResult(node);
         }
         renderText(node);
         return;
