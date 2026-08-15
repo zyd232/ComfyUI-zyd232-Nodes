@@ -215,7 +215,9 @@ export function createFloatingWindow(node, options = {}) {
         zIndex: "100",
         overflow: "hidden",
         transformOrigin: "0 0",
-        fontFamily: "sans-serif",
+        // Use ComfyUI's default font variable so the panel (title bar, buttons,
+        // body) follows the frontend's configured font and theme.
+        fontFamily: "var(--font-family)",
         color: "#e0e0e0",
         minWidth: minWidth + "px",
         minHeight: minHeight + "px",

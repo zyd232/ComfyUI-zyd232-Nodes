@@ -71,7 +71,9 @@ function createPanel(node) {
         overflowX: "hidden",
         padding: "6px 8px",
         fontSize: "11px",
-        fontFamily: "monospace",
+        // Use ComfyUI's default font variable so the text follows the
+        // frontend's configured font (and theme) instead of a hardcoded one.
+        fontFamily: "var(--font-family)",
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
         lineHeight: "1.4",
