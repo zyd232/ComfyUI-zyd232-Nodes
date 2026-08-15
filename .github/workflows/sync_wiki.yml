@@ -28,7 +28,9 @@ jobs:
         with:
           repository: ${{ github.repository }}.wiki
           path: wiki-repo
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN cannot write to the separate .wiki repo.
+          # Use a PAT with "repo" scope stored in the WIKI_SYNC_TOKEN secret.
+          token: ${{ secrets.WIKI_SYNC_TOKEN }}
 
       - name: Sync wiki files
         run: |
