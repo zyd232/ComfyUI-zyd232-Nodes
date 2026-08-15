@@ -314,7 +314,7 @@ async def load_config_endpoint(request):
 
 # ======================= Streaming Event Helper =======================
 
-def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=False):
+def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=False, start=False):
     """Push an incremental streaming-text chunk to the frontend over WebSocket.
 
     The frontend listens for the ``zyd232/stream_text`` event and appends the
@@ -322,6 +322,9 @@ def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=
 
     ``node_id`` is the ComfyUI node id of the executing LLM Generator node, used
     by the frontend to correlate the chunk to the correct node instance.
+
+    ``start`` marks the beginning of a new generation; the frontend clears any
+    previous content when it receives a ``start`` event.
     """
     try:
         PromptServer.instance.send_sync("zyd232/stream_text", {
@@ -330,6 +333,7 @@ def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=
             "reasoning_content": reasoning_content or "",
             "done": bool(done),
             "stopped": bool(stopped),
+            "start": bool(start),
         })
     except Exception as e:
         print(f"[zyd232 LLM] Failed to push stream event: {e}")
@@ -1054,6 +1058,12 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             must NOT emit a ``done`` event: doing so would make the frontend treat
             the unload response as the end of the generation and (with auto_lock)
             lock the partial/stopped result. Pass ``push_done=False`` for those.
+
+            When ``push_done`` is True, a ``start`` event is also pushed before the
+            stream begins so the frontend reliably clears any previous (possibly
+            stale) content before the new generation's chunks arrive. This makes the
+            clear-on-new-generation behavior deterministic even if the previous
+            generation's ``done`` event was missed (e.g. after a Stop).
             """
             req = urllib.request.Request(
                 url, data=json.dumps(payload_dict).encode('utf-8'),
@@ -1062,6 +1072,10 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             response = urllib.request.urlopen(req, timeout=timeout_sec)
             with _active_generation_lock:
                 _active_generation["response"] = response
+            # Signal the start of a new generation so the frontend clears any
+            # previous content before the first chunk arrives.
+            if push_done:
+                _push_stream_event(node_id, "", "", start=True)
             acc_text = ""
             acc_reasoning = ""
             # State machine that splits think-tagged reasoning out of the content
@@ -1185,6 +1199,12 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 was_stopped = bool(_active_generation.get("stopped"))
             if was_stopped:
                 print("[zyd232 LLM] Generation stopped by user.")
+                # The streaming connection was closed by Stop, so the normal
+                # "done" push inside send_post() was skipped by the exception.
+                # Push a terminal done event here so the frontend resets its
+                # streaming state (otherwise the next generation would not clear
+                # the previous partial content).
+                _push_stream_event(node_id, "", "", done=True, stopped=True)
             else:
                 final_text = f"Error: {e}"
                 reasoning = ""

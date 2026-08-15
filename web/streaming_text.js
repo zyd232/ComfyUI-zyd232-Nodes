@@ -480,7 +480,22 @@ function handleStreamEvent(data) {
         return;
     }
 
-    // A new generation starts: clear previous content on the first chunk.
+    // A new generation starts: the backend pushes a "start" event before the
+    // first chunk so we reliably clear any previous (possibly stale) content.
+    // This is deterministic even if the previous generation's "done" event was
+    // missed (e.g. after a Stop), which previously left st.streaming stuck true
+    // and caused new content to be appended below the old residual text.
+    if (data.start) {
+        st.streaming = true;
+        st.lastDone = false;
+        st.content = "";
+        st.reasoning = "";
+        renderText(node);
+        return;
+    }
+
+    // Defensive fallback: if a chunk arrives without a preceding "start" event
+    // (e.g. an older backend), clear on the first chunk of a new generation.
     if (!st.streaming) {
         st.streaming = true;
         st.content = "";
