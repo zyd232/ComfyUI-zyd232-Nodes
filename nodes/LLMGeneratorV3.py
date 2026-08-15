@@ -589,7 +589,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
 
                 # --- Multimodal sampling controls --- #
                 io.Float.Input("video_fps", default=1.0, min=0.1, max=30.0, step=0.1,
-                    tooltip="Frames per second sampled from each reference video"),
+                    tooltip="Sampling density per reference video. Assumes the source video is 24fps: keeps video_fps frames per 24 source frames (n = total * video_fps/24), then capped by max_video_frames. Default 1.0."),
                 io.Int.Input("max_video_frames", default=-1, min=-1,
                     tooltip="Maximum number of frames sent per video (to avoid exceeding context length). Set to -1 or 0 to disable the cap and send all frames."),
                 io.Boolean.Input("enable_audio", default=False, label_on="Enable", label_off="Disable",

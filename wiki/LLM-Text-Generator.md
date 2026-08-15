@@ -88,7 +88,7 @@ The node supports multiple reference images, videos, and audio via autogrow inpu
 
 ### Video sampling controls
 
-- **video_fps** — Frames per second sampled from each reference video (default `1.0`).
+- **video_fps** — Sampling density per reference video (default `1.0`). Assumes the source video is 24fps: keeps `video_fps` frames per 24 source frames (`n = total * video_fps/24`), then capped by `max_video_frames`.
 - **max_video_frames** — Maximum number of frames sent per video to avoid exceeding the context length (default `-1`). Set to `-1` or `0` to disable the cap and send all sampled frames.
 
 ### Audio controls
@@ -177,7 +177,7 @@ Enable **thinking** to separate the model's reasoning chain from its final answe
 | **llama_cpp_unload** | Unloads via llama.cpp-specific endpoint | Using a llama.cpp server |
 | **llama_endpoint** | llama.cpp unload API endpoint path | Using a llama.cpp server |
 | **context_length** | Context window size (`num_ctx` / `n_ctx`); `-1`/`0` uses server default | Control memory usage / context size |
-| **video_fps** | Frames per second sampled from each reference video | Using video inputs |
+| **video_fps** | Sampling density per reference video; assumes 24fps source, keeps `video_fps` frames per 24 source frames (`n = total * video_fps/24`), capped by `max_video_frames` | Using video inputs |
 | **max_video_frames** | Max frames sent per video (avoids exceeding context length); `-1`/`0` disables the cap and sends all sampled frames | Using video inputs |
 | **enable_audio** | Encode and send audio references to the API | Model supports audio input |
 | **temperature** | Randomness: higher is more creative, lower is more stable (default `0.7`) | Control output style |

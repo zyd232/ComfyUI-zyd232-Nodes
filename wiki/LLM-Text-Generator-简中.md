@@ -88,7 +88,7 @@
 
 ### 视频采样控制
 
-- **video_fps** — 从每个参考视频采样的帧率（默认 `1.0`）。
+- **video_fps** — 每个参考视频的采样密度（默认 `1.0`）。假设原视频为 24fps：每 24 个源帧保留 `video_fps` 帧（`n = total * video_fps/24`），再受 `max_video_frames` 上限约束。
 - **max_video_frames** — 每个视频发送的最大帧数，避免超出上下文长度（默认 `-1`）。设置为 `-1` 或 `0` 表示不设置上限，发送所有采样帧。
 
 ### 音频控制
@@ -177,7 +177,7 @@
 | **llama_cpp_unload** | 通过 llama.cpp 专用端点卸载 | 使用 llama.cpp 服务器 |
 | **llama_endpoint** | llama.cpp 卸载 API 端点路径 | 使用 llama.cpp 服务器 |
 | **context_length** | 上下文窗口大小（`num_ctx` / `n_ctx`）；`-1`/`0` 使用服务器默认值 | 控制内存占用 / 上下文大小 |
-| **video_fps** | 从每个参考视频采样的帧率 | 使用视频输入 |
+| **video_fps** | 每个参考视频的采样密度；假设原视频为 24fps，每 24 个源帧保留 `video_fps` 帧（`n = total * video_fps/24`），受 `max_video_frames` 上限约束 | 使用视频输入 |
 | **max_video_frames** | 每个视频发送的最大帧数（避免超出上下文长度）；`-1`/`0` 表示不设置上限，发送所有采样帧 | 使用视频输入 |
 | **enable_audio** | 编码并发送音频参考到 API | 模型支持音频输入 |
 | **temperature** | 随机性：越高越有创意，越低越稳定（默认 `0.7`） | 控制输出风格 |
