@@ -1,0 +1,55 @@
+name: Sync Wiki
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "wiki/**"
+
+permissions:
+  contents: read
+
+jobs:
+  sync-wiki:
+    name: Sync wiki/ to GitHub Wiki
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'zyd232' }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check out wiki repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki-repo
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync wiki files
+        run: |
+          # Remove existing wiki pages (except Home.md which we will overwrite)
+          find wiki-repo -type f -name "*.md" -delete
+          # Copy all wiki markdown files from the source directory
+          cp wiki/*.md wiki-repo/
+          # Ensure Home.md exists as the wiki landing page
+          if [ ! -f wiki-repo/Home.md ]; then
+            echo "# ComfyUI zyd232 Nodes" > wiki-repo/Home.md
+          fi
+
+      - name: Commit and push changes
+        run: |
+          cd wiki-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Sync wiki from source (${GITHUB_SHA::7})"
+            git push
+          fi
