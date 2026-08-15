@@ -334,6 +334,96 @@ def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=
         print(f"[zyd232 LLM] Failed to push stream event: {e}")
 
 
+# ======================= Thinking Stream State Machine =======================
+
+class _ThinkingStreamParser:
+    """Real-time state machine that splits a streaming text stream into
+    reasoning (inside think tags) and content (outside think tags).
+
+    Handles tags that are split across multiple stream chunks by buffering
+    partial tag prefixes, so a tag like ``<thi`` + ``nk>`` is still detected.
+    """
+
+    def __init__(self, start_tag, end_tag):
+        self.start_tag = start_tag
+        self.end_tag = end_tag
+        self.in_thinking = False
+        self._buffer = ""
+
+    def feed(self, text):
+        """Feed one chunk of streamed text.
+
+        Returns a ``(content_part, reasoning_part)`` tuple for this chunk. The
+        think tags themselves are consumed and never included in either part.
+        """
+        content_parts = []
+        reasoning_parts = []
+        self._buffer += text
+
+        while True:
+            if self.in_thinking:
+                idx = self._buffer.find(self.end_tag)
+                if idx == -1:
+                    # No closing tag yet. Hold back any trailing partial prefix
+                    # of the end tag so a split tag isn't emitted prematurely.
+                    keep = self._partial_prefix_len(self._buffer, self.end_tag)
+                    if keep:
+                        split = len(self._buffer) - keep
+                        reasoning_parts.append(self._buffer[:split])
+                        self._buffer = self._buffer[split:]
+                    else:
+                        reasoning_parts.append(self._buffer)
+                        self._buffer = ""
+                    break
+                reasoning_parts.append(self._buffer[:idx])
+                self._buffer = self._buffer[idx + len(self.end_tag):]
+                self.in_thinking = False
+                # Continue the loop to process any content after the end tag.
+            else:
+                idx = self._buffer.find(self.start_tag)
+                if idx == -1:
+                    keep = self._partial_prefix_len(self._buffer, self.start_tag)
+                    if keep:
+                        split = len(self._buffer) - keep
+                        content_parts.append(self._buffer[:split])
+                        self._buffer = self._buffer[split:]
+                    else:
+                        content_parts.append(self._buffer)
+                        self._buffer = ""
+                    break
+                content_parts.append(self._buffer[:idx])
+                self._buffer = self._buffer[idx + len(self.start_tag):]
+                self.in_thinking = True
+                # Continue the loop to process any reasoning after the start tag.
+
+        return "".join(content_parts), "".join(reasoning_parts)
+
+    def flush(self):
+        """Emit any remaining buffered text to the current section.
+
+        Returns a ``(content_part, reasoning_part)`` tuple. Called at the end of
+        the stream to release text that was held back as a potential tag prefix.
+        """
+        content_part = ""
+        reasoning_part = ""
+        if self._buffer:
+            if self.in_thinking:
+                reasoning_part = self._buffer
+            else:
+                content_part = self._buffer
+            self._buffer = ""
+        return content_part, reasoning_part
+
+    def _partial_prefix_len(self, text, tag):
+        """Return the length of the longest suffix of ``text`` that is a proper
+        prefix of ``tag`` (i.e. could be the start of a split tag)."""
+        max_len = min(len(text), len(tag) - 1)
+        for i in range(max_len, 0, -1):
+            if text[-i:] == tag[:i]:
+                return i
+        return 0
+
+
 # ======================= Stop Helper =======================
 
 def _close_active_connection():
@@ -764,6 +854,16 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         if not thinking:
             extra_instruction = " Please provide the direct answer immediately. Do NOT output any thinking process or internal reasoning."
             adjusted_system_prompt = system_prompt + extra_instruction if system_prompt.strip() else extra_instruction
+        else:
+            # When thinking is enabled, instruct the model to wrap its internal
+            # reasoning in the configured think tags so the streaming state
+            # machine can separate it from the final answer in real time.
+            think_instruction = (
+                f" Please put your internal reasoning/thinking process inside "
+                f"{think_start_tag} and {think_end_tag} tags, then provide the "
+                f"final answer after the closing tag."
+            )
+            adjusted_system_prompt = system_prompt + think_instruction if system_prompt.strip() else think_instruction
 
         if adjusted_system_prompt.strip():
             messages.append({"role": "system", "content": adjusted_system_prompt})
@@ -912,6 +1012,10 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 _active_generation["response"] = response
             acc_text = ""
             acc_reasoning = ""
+            # State machine that splits think-tagged reasoning out of the content
+            # stream in real time. Used when thinking is enabled and the API does
+            # not provide native reasoning_content.
+            parser = _ThinkingStreamParser(think_start_tag, think_end_tag) if thinking else None
             try:
                 for raw_line in response:
                     line = raw_line.decode('utf-8', errors='replace').strip()
@@ -930,16 +1034,45 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     delta = choices[0].get("delta") or {}
                     delta_text = delta.get("content") or ""
                     delta_reasoning = delta.get("reasoning_content") or ""
-                    acc_text += delta_text
-                    acc_reasoning += delta_reasoning
-                    # Push the incremental chunk to the frontend so the streaming
-                    # text can be displayed in real time on the node's panel.
-                    if delta_text or delta_reasoning:
-                        _push_stream_event(node_id, delta_text, delta_reasoning, done=False, stopped=False)
+
+                    # If the API provides native reasoning_content, trust it
+                    # directly and push it as reasoning.
+                    if delta_reasoning:
+                        acc_reasoning += delta_reasoning
+                        _push_stream_event(node_id, "", delta_reasoning, done=False, stopped=False)
+
+                    # For the content stream: when thinking is enabled and the API
+                    # did not provide native reasoning, use the state machine to
+                    # separate think-tagged reasoning from the final answer.
+                    if delta_text:
+                        if parser is not None and not delta_reasoning:
+                            content_part, reasoning_part = parser.feed(delta_text)
+                            if content_part:
+                                acc_text += content_part
+                                _push_stream_event(node_id, content_part, "", done=False, stopped=False)
+                            if reasoning_part:
+                                acc_reasoning += reasoning_part
+                                _push_stream_event(node_id, "", reasoning_part, done=False, stopped=False)
+                        else:
+                            acc_text += delta_text
+                            _push_stream_event(node_id, delta_text, "", done=False, stopped=False)
+
                     # If the Stop button was pressed, stop accumulating and return
                     # whatever text has been received so far.
                     if _is_stopped():
                         break
+
+                # Flush any remaining buffered text from the state machine (e.g.
+                # a trailing partial tag prefix) before signalling completion.
+                if parser is not None:
+                    content_part, reasoning_part = parser.flush()
+                    if content_part:
+                        acc_text += content_part
+                        _push_stream_event(node_id, content_part, "", done=False, stopped=False)
+                    if reasoning_part:
+                        acc_reasoning += reasoning_part
+                        _push_stream_event(node_id, "", reasoning_part, done=False, stopped=False)
+
                 # Signal completion so the frontend can finalize the display.
                 _push_stream_event(node_id, "", "", done=True, stopped=_is_stopped())
                 return acc_text, acc_reasoning
