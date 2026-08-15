@@ -88,6 +88,17 @@ app.registerExtension({
             // Set up the streaming text display panel on the right side of the node.
             setupStreamingPanel(node);
 
+            // Hide the locked-result persistence widgets. These are declared in
+            // the backend schema (use_locked, locked_text, locked_reasoning) and
+            // are serialized into the workflow JSON and passed to execute(), but
+            // they must not be visible in the node UI. Setting type to "hidden"
+            // keeps them out of the node's widget list while still serializing
+            // their values (serialize is not disabled).
+            for (const hiddenName of ["use_locked", "locked_text", "locked_reasoning"]) {
+                const w = node.widgets.find(w => w.name === hiddenName);
+                if (w) w.type = "hidden";
+            }
+
             // ---- Core widgets (already existed) ----
             const baseUrlWidget = node.widgets.find(w => w.name === "base_url");
             const apiKeyWidget = node.widgets.find(w => w.name === "api_key");

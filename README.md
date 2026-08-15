@@ -68,9 +68,27 @@ The node supports multiple reference images, videos and audio via autogrow input
 - **Streaming Text Display** — The node shows the generated text in real time on a floating panel to the right of the node. As chunks arrive over WebSocket, the panel updates live while the model is still generating. The panel is a DOM overlay that follows the node when it is moved or the canvas is zoomed/panned, and it never overlaps the node's widgets. The panel supports:
   - **Collapse / Expand** (`▼` / `▶`) — hide or show the panel.
   - **Show / Hide Reasoning** (`🧠` / `🚫`) — toggle the reasoning block.
-  - **Clear** (`✕`) — clear the displayed text.
+  - **Lock / Unlock Result** (`🔒` / `🔓`) — lock the current output so it is saved into the workflow and reused on the next run without calling the LLM again (see below).
+  - **Clear** (`✕`) — clear the displayed text. Disabled while the result is locked (unlock first).
   - **Copy** (`⧉`) — copy the displayed text to the clipboard.
   - **Auto-scroll** — the panel stays scrolled to the bottom while streaming; scroll manually to pause auto-scroll.
+
+#### Lock Result — Save & Reuse Output Without Re-running the LLM
+
+When you finish a generation, you can **lock** the result so it is stored inside the workflow itself. This is useful when you want to save or share a workflow: other users (or a later re-run) will use the locked output directly and **skip the LLM service call entirely**.
+
+**How to use:**
+1. Run the node and wait for the generation to finish.
+2. Click the **🔒 Lock** button on the Streaming Text panel's title bar. The current output (and reasoning, if shown) is saved into the workflow.
+3. Save the workflow as usual — the locked result is embedded in the workflow JSON.
+4. When the workflow is re-run (by you or anyone who loads the shared file), the node returns the locked text/reasoning directly without contacting the LLM server. Downstream nodes consume the locked result as normal.
+5. To generate fresh output again, click **🔓 Unlock** and re-run.
+
+**Notes:**
+- Hovering over the lock button shows a tooltip explaining its function.
+- While locked, the **Clear** button is disabled so the locked result cannot be accidentally wiped; unlock first to clear.
+- Locking an empty result is allowed (it simply locks an empty output).
+- Unlocking changes the node's inputs, which invalidates ComfyUI's cache and forces the node to re-run the LLM on the next execution.
 - **Context Length Control** — Set **context_length** to control the context window (`num_ctx` / `n_ctx`). Set to `-1` or `0` to let the server use its default.
 
 #### Other Options Quick Reference

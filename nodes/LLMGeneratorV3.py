@@ -583,6 +583,20 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 io.Boolean.Input("enable_audio", default=False, label_on="Enable", label_off="Disable",
                     tooltip="Encode and send audio references to the API (only if the model supports audio)"),
 
+                # --- Locked-result persistence (hidden widgets) --- #
+                # These three inputs back the "Lock result" button on the Streaming
+                # Text panel. They are hidden from the node UI (see
+                # web/llm_model_fetcher.js) but are serialized into the workflow JSON
+                # and passed to execute(). When use_locked is true, execute() skips the
+                # LLM call and returns the locked text/reasoning directly, so re-running
+                # the workflow (or sharing it) does not require calling the LLM again.
+                io.Boolean.Input("use_locked", default=False,
+                    tooltip="When true, skip LLM generation and return the locked result"),
+                io.String.Input("locked_text", default="",
+                    tooltip="Locked final text returned when use_locked is true"),
+                io.String.Input("locked_reasoning", default="",
+                    tooltip="Locked reasoning text returned when use_locked is true"),
+
                 # --- Dynamic multimodal inputs (Autogrow) --- #
                 io.Autogrow.Input("images", optional=True,
                     template=io.Autogrow.TemplatePrefix(
@@ -642,12 +656,20 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         fully, we return a *stable* value so the completed result is cached and
         the node is not re-run.
 
+        When the result is locked (``use_locked`` is true), we always return a
+        *stable* value so the node is cached and never re-runs the LLM. The
+        cache key also incorporates the ``use_locked`` / ``locked_text`` /
+        ``locked_reasoning`` input values, so unlocking (or editing the locked
+        text) changes the key and forces a re-execution.
+
         ``uuid.uuid4()`` is used for the changing value. It is a 128-bit random
         value that is effectively guaranteed to differ on every call, so even
         repeated Stop/run cycles (e.g. from a script) can never collide and
         accidentally hit the cache. It also avoids any incrementing integer,
         so there is no overflow risk.
         """
+        if kwargs.get("use_locked"):
+            return "locked"
         if _get_last_generation_stopped():
             return str(uuid.uuid4())
         return "completed"
@@ -774,7 +796,17 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 llama_cpp_unload, llama_endpoint,
                 cache_prompt,
                 video_fps, max_video_frames, enable_audio,
+                use_locked=False, locked_text="", locked_reasoning="",
                 images=None, videos=None, video_audios=None, audios=None) -> io.NodeOutput:
+
+        # --- Locked-result fast path ---
+        # When the user has locked the result on the Streaming Text panel, skip
+        # the entire LLM generation and return the locked text/reasoning directly.
+        # This lets a saved/shared workflow be re-run without calling the LLM
+        # service again; downstream nodes simply consume the locked output.
+        if use_locked:
+            print("[zyd232 LLM] Result is locked; returning locked text without calling the LLM.")
+            return io.NodeOutput(locked_text or "", locked_reasoning or "")
 
         # --- Resolve the current node id so the frontend can correlate streamed
         # text chunks to this specific node instance. ---

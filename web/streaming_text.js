@@ -36,12 +36,46 @@ function getState(node) {
             collapsed: false,     // whether the panel is collapsed
             streaming: false,     // whether a generation is in progress
             lastDone: false,      // whether the last generation finished
+            locked: false,        // whether the displayed result is locked
             win: null,            // the floating-window controller
             textEl: null,         // the text content element
             statusEl: null,       // the status element
+            lockBtn: null,        // the lock/unlock title-bar button
+            clearBtn: null,       // the clear title-bar button
         };
     }
     return node.__zyd232Stream;
+}
+
+// ============ Locked-result widget helpers ============
+// The locked result is persisted in three hidden widgets (use_locked,
+// locked_text, locked_reasoning) declared in the backend schema. ComfyUI
+// serializes their values into the workflow JSON and passes them to execute(),
+// so a locked result survives save/load/share and lets the backend skip the LLM
+// call on re-run. These helpers read/write those widgets on the node.
+
+function getLockWidgets(node) {
+    const find = (name) => node.widgets ? node.widgets.find(w => w.name === name) : null;
+    return {
+        useLocked: find("use_locked"),
+        lockedText: find("locked_text"),
+        lockedReasoning: find("locked_reasoning"),
+    };
+}
+
+function isNodeLocked(node) {
+    const w = getLockWidgets(node);
+    return !!(w.useLocked && w.useLocked.value);
+}
+
+function setNodeLocked(node, locked, text, reasoning) {
+    const w = getLockWidgets(node);
+    if (w.useLocked) w.useLocked.value = !!locked;
+    if (w.lockedText) w.lockedText.value = text ?? "";
+    if (w.lockedReasoning) w.lockedReasoning.value = reasoning ?? "";
+    // Mark the node dirty so ComfyUI persists the widget values into the
+    // workflow JSON on save.
+    if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
 }
 
 // ============ DOM Panel Creation ============
@@ -154,13 +188,39 @@ function createPanel(node) {
     const btnRow = win.btnRow;
     if (btnRow) {
         // Reasoning toggle button
-        const reasoningBtn = makeTitleButton(st.showReasoning ? "🧠" : "🚫", "Toggle reasoning", () => {
+        const reasoningBtn = makeTitleButton(st.showReasoning ? "🧠" : "🚫", "Click to toggle reasoning", () => {
             st.showReasoning = !st.showReasoning;
             reasoningBtn.textContent = st.showReasoning ? "🧠" : "🚫";
             renderText(node);
         });
 
-        // Clear button
+        // Lock / unlock button. The icon reflects the CURRENT lock state: 🔒
+        // when locked, 🔓 when unlocked. Locking persists the current
+        // content/reasoning into the hidden locked_* widgets so it is saved with
+        // the workflow and the backend skips the LLM call on re-run. Unlocking
+        // clears that state so the node re-runs the LLM.
+        const lockBtn = makeTitleButton("🔓", "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run", () => {
+            if (st.locked) {
+                // Unlock: clear the locked state so the node re-runs the LLM.
+                st.locked = false;
+                setNodeLocked(node, false, "", "");
+                lockBtn.textContent = "🔓";
+                lockBtn.title = "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
+                updateClearButton();
+                renderText(node);
+            } else {
+                // Lock: persist the current content/reasoning.
+                st.locked = true;
+                setNodeLocked(node, true, st.content, st.reasoning);
+                lockBtn.textContent = "🔒";
+                lockBtn.title = "Click to unlock the result: allow the node to call the LLM again on the next run";
+                updateClearButton();
+                renderText(node);
+            }
+        });
+
+        // Clear button. Disabled while the result is locked so the user cannot
+        // accidentally wipe a locked result; they must unlock first.
         const clearBtn = makeTitleButton("✕", "Clear", () => {
             st.content = "";
             st.reasoning = "";
@@ -183,7 +243,22 @@ function createPanel(node) {
             collapseBtn.textContent = win.isCollapsed() ? "▶" : "▼";
         });
 
-        btnRow.append(reasoningBtn, clearBtn, copyBtn, collapseBtn);
+        // Enable/disable the Clear button based on the locked state.
+        const updateClearButton = () => {
+            clearBtn.disabled = st.locked;
+            clearBtn.style.opacity = st.locked ? "0.4" : "1";
+            clearBtn.style.cursor = st.locked ? "not-allowed" : "pointer";
+            clearBtn.title = st.locked ? "Unlock the result before clearing" : "Clear";
+        };
+
+        // Order: lock, reasoning, clear, copy, collapse — the lock button is the
+        // first (leftmost) button in the title bar.
+        btnRow.append(lockBtn, reasoningBtn, clearBtn, copyBtn, collapseBtn);
+
+        // Store references for later use (onConfigure restore, etc.).
+        st.lockBtn = lockBtn;
+        st.clearBtn = clearBtn;
+        st.updateClearButton = updateClearButton;
     }
 
     // Store references
@@ -191,7 +266,44 @@ function createPanel(node) {
     st.textEl = textEl;
     st.statusEl = statusEl;
 
+    // Initialize the locked state from the persisted hidden widgets. This covers
+    // the case where the panel is created after a workflow with a locked result
+    // has already been loaded (the widgets already hold the locked values).
+    syncLockedState(node);
+
     return win;
+}
+
+// ============ Locked-state sync ============
+
+// Reflect the persisted hidden-widget state onto the panel UI (button icon,
+// Clear-button availability, and the displayed content). Called on panel
+// creation and on workflow load (onConfigure).
+function syncLockedState(node) {
+    const st = getState(node);
+    const locked = isNodeLocked(node);
+    st.locked = locked;
+
+    if (st.lockBtn) {
+        // The icon reflects the CURRENT lock state: 🔒 when locked, 🔓 when
+        // unlocked.
+        st.lockBtn.textContent = locked ? "🔒" : "🔓";
+        st.lockBtn.title = locked
+            ? "Click to unlock the result: allow the node to call the LLM again on the next run"
+            : "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
+    }
+    if (st.updateClearButton) st.updateClearButton();
+
+    // When a locked result is loaded, restore it into the panel display so the
+    // user sees exactly what will be returned (and what downstream nodes use).
+    if (locked) {
+        const w = getLockWidgets(node);
+        st.content = (w.lockedText && w.lockedText.value) || "";
+        st.reasoning = (w.lockedReasoning && w.lockedReasoning.value) || "";
+        st.lastDone = true;
+        st.streaming = false;
+        renderText(node);
+    }
 }
 
 // ============ Rendering ============
@@ -269,6 +381,11 @@ function handleStreamEvent(data) {
     }
     const st = getState(node);
 
+    // When the result is locked, the backend skips LLM generation and does not
+    // stream. Ignore any (stale) stream events so they cannot overwrite the
+    // locked content shown in the panel.
+    if (st.locked) return;
+
     if (data.done) {
         st.streaming = false;
         st.lastDone = true;
@@ -320,6 +437,10 @@ export function setupStreamingPanel(node) {
     const origOnConfigure = node.onConfigure ? node.onConfigure.bind(node) : null;
     node.onConfigure = function (...rest) {
         registerNode();
+        // After a workflow is loaded/pasted, restore the locked state (button
+        // icon, Clear availability, and the locked content display) from the
+        // persisted hidden widgets.
+        syncLockedState(node);
         if (origOnConfigure) return origOnConfigure(...rest);
     };
 
