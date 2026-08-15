@@ -2,7 +2,7 @@
 
 # Mask Batch Blend
 
-[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](Mask-Batch-Blend-zh-CN)
+[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](Mask-Batch-Blend-简中)
 
 </div>
 

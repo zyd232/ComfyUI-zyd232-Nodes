@@ -6,7 +6,7 @@
 
 </div>
 
-> 返回 [Wiki 首页](Home-zh-CN)
+> 返回 [Wiki 首页](Home-简中)
 
 ## 概述
 
@@ -170,4 +170,4 @@
 
 ---
 
-> 返回 [Wiki 首页](Home-zh-CN)
+> 返回 [Wiki 首页](Home-简中)
