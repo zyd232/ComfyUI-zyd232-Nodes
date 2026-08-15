@@ -138,6 +138,13 @@ function createPanel(node) {
         defaultSize: { w: DEFAULT_WIDTH, h: DEFAULT_HEIGHT },
         defaultOffset,
         storageKey: "zyd232StreamFloat",
+        // Only show this window while the currently displayed graph is the same
+        // graph that contains the node. This keeps the Streaming Text panel
+        // attached to the interface where its parent LLM node lives: entering a
+        // subgraph hides windows whose parent is on the main graph, and viewing
+        // the main graph (or another subgraph) hides windows whose parent is
+        // inside a subgraph.
+        followGraph: true,
         onCollapse: (collapsed) => {
             st.collapsed = collapsed;
         },

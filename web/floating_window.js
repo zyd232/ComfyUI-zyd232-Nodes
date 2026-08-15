@@ -134,6 +134,18 @@ function applyWindowTransform(win) {
 function syncAllWindows() {
     for (const win of liveWindows.values()) {
         if (!win.panel || !win.panel.isConnected) continue;
+        // When followGraph is enabled, only show the window while the currently
+        // displayed graph (app.canvas.graph) is the same graph that contains the
+        // node (node.graph). This keeps the floating window attached to the
+        // interface where its parent node lives: entering a subgraph hides
+        // windows whose parent is on the main graph, and vice-versa.
+        if (win.followGraph) {
+            const visible = app.canvas?.graph === win.node.graph;
+            const want = visible ? "flex" : "none";
+            if (win.panel.style.display !== want) {
+                win.panel.style.display = want;
+            }
+        }
         applyWindowTransform(win);
     }
 }
@@ -164,6 +176,11 @@ function installPositionSync() {
  * @param {number} [options.minWidth] - Minimum window width.
  * @param {number} [options.minHeight] - Minimum window height.
  * @param {Function} [options.onCollapse] - Called with (collapsed) after toggle.
+ * @param {boolean} [options.followGraph] - When true, the window is only shown
+ *   while the currently displayed graph (app.canvas.graph) is the same graph
+ *   that contains the node (node.graph). This keeps the window attached to the
+ *   interface where its parent node lives (e.g. hiding it when entering a
+ *   subgraph if the node is on the main graph, and vice-versa).
  * @returns {object} The window controller.
  */
 export function createFloatingWindow(node, options = {}) {
@@ -171,6 +188,7 @@ export function createFloatingWindow(node, options = {}) {
     const titleHeight = options.titleHeight || DEFAULT_TITLE_HEIGHT;
     const minWidth = options.minWidth || DEFAULT_MIN_WIDTH;
     const minHeight = options.minHeight || DEFAULT_MIN_HEIGHT;
+    const followGraph = !!options.followGraph;
 
     // ---- Geometry (persisted in node.properties) ----
     function readGeom() {
@@ -308,6 +326,7 @@ export function createFloatingWindow(node, options = {}) {
         titleHeight,
         minWidth,
         minHeight,
+        followGraph,
         _sig: "",
         _collapsed: false,
         _geom: readGeom(),
@@ -426,6 +445,12 @@ export function createFloatingWindow(node, options = {}) {
     liveWindows.set(node, win);
     installPositionSync();
     applyWindowTransform(win);
+    // Apply the initial graph-following visibility so a window whose parent
+    // node is not on the currently displayed graph starts hidden.
+    if (followGraph) {
+        const visible = app.canvas?.graph === node.graph;
+        panel.style.display = visible ? "flex" : "none";
+    }
 
     // ---- Lifecycle: restore on load, clean up on remove ----
     chainCallback(node, "onConfigure", function () {
@@ -435,6 +460,12 @@ export function createFloatingWindow(node, options = {}) {
         panel.style.height = win._geom.h + "px";
         win._sig = "";
         applyWindowTransform(win);
+        // Re-apply graph-following visibility after a workflow load/paste, when
+        // the node's graph may have changed (e.g. restored inside a subgraph).
+        if (followGraph) {
+            const visible = app.canvas?.graph === node.graph;
+            panel.style.display = visible ? "flex" : "none";
+        }
     });
 
     chainCallback(node, "onRemoved", function () {
