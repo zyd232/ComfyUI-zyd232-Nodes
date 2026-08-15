@@ -2,7 +2,7 @@
 
 # ComfyUI zyd232 Nodes — Wiki
 
-[![English](https://img.shields.io/badge/English-Wiki-blue)](../Home)
+[![English](https://img.shields.io/badge/English-Wiki-blue)](Home)
 
 </div>
 
@@ -16,10 +16,10 @@
 
 | 节点名称 | 类别 | 功能简介 | 文档 |
 |---------|------|---------|------|
-| **LLM Text Generator** | `zyd232 Nodes/LLM` | 连接任意 OpenAI 兼容 LLM 服务进行文本生成，支持多图/视频/音频、流式显示、配置预设、结果锁定 | [📄 查看文档](LLM-Text-Generator) |
-| **Images Pixels Compare** | `zyd232 Nodes` | 像素级比较两张图片是否完全相同，输出布尔值 | [📄 查看文档](Images-Pixels-Compare) |
-| **Save Preview Images** | `zyd232 Nodes` | 保存图片（PNG/JPG），支持质量、元数据、自定义路径、工作流 JSON 与预览 | [📄 查看文档](Save-Preview-Images) |
-| **Mask Batch Blend** | `zyd232 Nodes` | 将多个 Mask 通过 add / max / average 操作合并为一个 | [📄 查看文档](Mask-Batch-Blend) |
+| **LLM Text Generator** | `zyd232 Nodes/LLM` | 连接任意 OpenAI 兼容 LLM 服务进行文本生成，支持多图/视频/音频、流式显示、配置预设、结果锁定 | [📄 查看文档](LLM-Text-Generator-zh-CN) |
+| **Images Pixels Compare** | `zyd232 Nodes` | 像素级比较两张图片是否完全相同，输出布尔值 | [📄 查看文档](Images-Pixels-Compare-zh-CN) |
+| **Save Preview Images** | `zyd232 Nodes` | 保存图片（PNG/JPG），支持质量、元数据、自定义路径、工作流 JSON 与预览 | [📄 查看文档](Save-Preview-Images-zh-CN) |
+| **Mask Batch Blend** | `zyd232 Nodes` | 将多个 Mask 通过 add / max / average 操作合并为一个 | [📄 查看文档](Mask-Batch-Blend-zh-CN) |
 
 ---
 
@@ -46,14 +46,14 @@
 
 ## 📖 各节点文档
 
-- [LLM Text Generator](LLM-Text-Generator)
-- [Images Pixels Compare](Images-Pixels-Compare)
-- [Save Preview Images](Save-Preview-Images)
-- [Mask Batch Blend](Mask-Batch-Blend)
+- [LLM Text Generator](LLM-Text-Generator-zh-CN)
+- [Images Pixels Compare](Images-Pixels-Compare-zh-CN)
+- [Save Preview Images](Save-Preview-Images-zh-CN)
+- [Mask Batch Blend](Mask-Batch-Blend-zh-CN)
 
 ---
 
 ## 🌐 语言
 
-- [English](../Home)
-- [简体中文](Home)
+- [English](Home)
+- [简体中文](Home-zh-CN)

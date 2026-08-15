@@ -2,11 +2,11 @@
 
 # LLM Text Generator
 
-[![English](https://img.shields.io/badge/English-Docs-blue)](../LLM-Text-Generator)
+[![English](https://img.shields.io/badge/English-Docs-blue)](LLM-Text-Generator)
 
 </div>
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)
 
 ## 概述
 
@@ -170,4 +170,4 @@
 
 ---
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)

@@ -2,11 +2,11 @@
 
 # Save Preview Images
 
-[![English](https://img.shields.io/badge/English-Docs-blue)](../Save-Preview-Images)
+[![English](https://img.shields.io/badge/English-Docs-blue)](Save-Preview-Images)
 
 </div>
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)
 
 ## 概述
 
@@ -88,4 +88,4 @@
 
 ---
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)

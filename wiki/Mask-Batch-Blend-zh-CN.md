@@ -2,11 +2,11 @@
 
 # Mask Batch Blend
 
-[![English](https://img.shields.io/badge/English-Docs-blue)](../Mask-Batch-Blend)
+[![English](https://img.shields.io/badge/English-Docs-blue)](Mask-Batch-Blend)
 
 </div>
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)
 
 ## 概述
 
@@ -66,4 +66,4 @@
 
 ---
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)

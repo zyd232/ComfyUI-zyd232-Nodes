@@ -2,7 +2,7 @@
 
 # ComfyUI zyd232 Nodes — Wiki
 
-[![简体中文](https://img.shields.io/badge/简体中文-Wiki-blue)](zh-CN/Home)
+[![简体中文](https://img.shields.io/badge/简体中文-Wiki-blue)](Home-zh-CN)
 
 </div>
 
@@ -56,4 +56,4 @@ All nodes are registered under the `zyd232 Nodes` category; the LLM node is in t
 ## 🌐 Languages
 
 - [English](Home)
-- [简体中文](zh-CN/Home)
+- [简体中文](Home-zh-CN)

@@ -2,7 +2,7 @@
 
 # Save Preview Images
 
-[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](zh-CN/Save-Preview-Images)
+[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](Save-Preview-Images-zh-CN)
 
 </div>
 

@@ -2,7 +2,7 @@
 
 # Images Pixels Compare
 
-[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](zh-CN/Images-Pixels-Compare)
+[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](Images-Pixels-Compare-zh-CN)
 
 </div>
 

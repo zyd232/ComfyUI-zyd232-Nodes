@@ -2,11 +2,11 @@
 
 # Images Pixels Compare
 
-[![English](https://img.shields.io/badge/English-Docs-blue)](../Images-Pixels-Compare)
+[![English](https://img.shields.io/badge/English-Docs-blue)](Images-Pixels-Compare)
 
 </div>
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)
 
 ## 概述
 
@@ -61,4 +61,4 @@
 
 ---
 
-> 返回 [Wiki 首页](Home)
+> 返回 [Wiki 首页](Home-zh-CN)
