@@ -139,6 +139,20 @@
 - 若结果已处于锁定状态，自动锁定不会重复操作。
 - `auto_lock` 设置会随配置预设一起保存，跨节点与工作流持久生效。
 
+#### 元数据（Meta）持久化
+
+启用 `auto_lock` 后，锁定结果不仅会写入前端画布上的隐藏控件，还会在**后端执行阶段**（`execute()` 返回前）同时写入两处：
+
+1. **执行 prompt**（`cls.hidden.prompt`，即 `dynprompt.get_original_prompt()` 的同一可变引用）中本节点的 `use_locked` / `locked_text` / `locked_reasoning` 值。
+2. **前端画布工作流**（`cls.hidden.extra_pnginfo["workflow"]`）中本节点的 `widgets_values` / `widgets_values_named` 值。
+
+这意味着：当 LLM 生成文本被下游节点（如文生图 / 文生视频）消费，且这些节点把工作流 JSON 嵌入到生成图片 / 视频的 **meta 信息**中时，嵌入的 `prompt` 与 `workflow` 都会**包含 LLM 的锁定生成文本**。
+
+- **重新运行工作流**时，后端读取 `prompt`，LLM 节点直接返回锁定的文本，无需再次调用 LLM 服务。
+- **把图片 / 视频拖回 ComfyUI 载入工作流**时，前端读取 `workflow`，Streaming Text 面板会正确显示**锁定状态**（🔒）和锁定文本。
+
+> 由于 ComfyUI 中 `prompt`（后端执行）与 `workflow`（前端画布）是两套独立数据，且前端拖入载入时优先使用 `workflow`，因此必须同时修改两者，才能保证"重新运行"与"拖入载入"两条路径都正确显示锁定状态。
+
 ---
 
 ## 思考 / 推理模式

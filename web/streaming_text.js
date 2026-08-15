@@ -329,6 +329,60 @@ function syncLockedState(node) {
     }
 }
 
+// Extract the locked result directly from a node's configure data (the object
+// passed to onConfigure, which carries widgets_values / widgets_values_named).
+//
+// Why not rely on the restored widget values? ComfyUI restores widget values
+// from the widgets_values array by iterating node.widgets in order, skipping
+// widgets whose serialize === false. But the button widgets added by this node
+// (Save/Delete/Refresh/Stop) end up with serialize !== false after a reload,
+// which shifts the array indices and prevents use_locked / locked_text /
+// locked_reasoning from being restored correctly. Reading the configure data
+// directly (by name when possible) is robust against that index shift.
+function extractLockedFromConfig(config) {
+    if (!config) return null;
+    // Prefer widgets_values_named (keyed by widget name) when present.
+    const named = config.widgets_values_named;
+    if (named && typeof named === "object" && named.use_locked) {
+        return {
+            locked: true,
+            text: named.locked_text || "",
+            reasoning: named.locked_reasoning || "",
+        };
+    }
+    // Fall back to widgets_values (array). use_locked / locked_text /
+    // locked_reasoning are the last three schema widgets.
+    if (Array.isArray(config.widgets_values) && config.widgets_values.length >= 3) {
+        const wv = config.widgets_values;
+        if (wv[wv.length - 3]) {
+            return {
+                locked: true,
+                text: wv[wv.length - 2] || "",
+                reasoning: wv[wv.length - 1] || "",
+            };
+        }
+    }
+    return null;
+}
+
+// Apply a locked result (from configure data) to the panel UI.
+function applyLockedState(node, locked, text, reasoning) {
+    const st = getState(node);
+    st.locked = locked;
+    st.content = text || "";
+    st.reasoning = reasoning || "";
+    st.lastDone = true;
+    st.streaming = false;
+    if (st.lockBtn) {
+        st.lockBtn.textContent = locked ? "🔒" : "🔓";
+        st.lockBtn.title = locked
+            ? "Click to unlock the result: allow the node to call the LLM again on the next run"
+            : "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
+    }
+    if (st.updateClearButton) st.updateClearButton();
+    renderText(node);
+}
+
 // ============ Rendering ============
 
 function renderText(node) {
@@ -468,9 +522,18 @@ export function setupStreamingPanel(node) {
     node.onConfigure = function (...rest) {
         registerNode();
         // After a workflow is loaded/pasted, restore the locked state (button
-        // icon, Clear availability, and the locked content display) from the
-        // persisted hidden widgets.
-        syncLockedState(node);
+        // icon, Clear availability, and the locked content display).
+        //
+        // Prefer reading the locked result directly from the configure data
+        // (rest[0]) because ComfyUI's widget-value restore can misalign the
+        // widgets_values array indices (button widgets end up serialize !==
+        // false after reload), which would otherwise leave use_locked false.
+        const lockedInfo = extractLockedFromConfig(rest && rest[0]);
+        if (lockedInfo) {
+            applyLockedState(node, lockedInfo.locked, lockedInfo.text, lockedInfo.reasoning);
+        } else {
+            syncLockedState(node);
+        }
         if (origOnConfigure) return origOnConfigure(...rest);
     };
 

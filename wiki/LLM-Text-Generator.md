@@ -139,6 +139,20 @@ The **auto_lock** toggle (a boolean button on the node, default **off**) automat
 - If the result is already locked, auto-lock does nothing.
 - The `auto_lock` setting is saved with your config presets, so it persists across nodes and workflows.
 
+#### Metadata persistence
+
+When `auto_lock` is enabled, the locked result is written not only into the hidden widgets on the frontend canvas, but also into **two places** during the backend execution phase (before `execute()` returns):
+
+1. **The execution prompt** (`cls.hidden.prompt`, the same mutable reference returned by `dynprompt.get_original_prompt()`) — this node's `use_locked` / `locked_text` / `locked_reasoning` values.
+2. **The frontend canvas workflow** (`cls.hidden.extra_pnginfo["workflow"]`) — this node's `widgets_values` / `widgets_values_named` values.
+
+This means: when the LLM-generated text is consumed by downstream nodes (e.g. text-to-image / text-to-video) that embed the workflow JSON into the **metadata** of the generated image / video, both the embedded `prompt` and `workflow` will **include the LLM's locked generated text**.
+
+- **Re-running the workflow** reads the `prompt`, so the LLM node returns the locked text directly without calling the LLM service again.
+- **Dragging the image / video back into ComfyUI** loads the `workflow`, so the Streaming Text panel correctly shows the **locked state** (🔒) and the locked text.
+
+> Because ComfyUI keeps `prompt` (backend execution) and `workflow` (frontend canvas) as two independent representations, and the frontend prefers `workflow` when loading a dragged-in file, both must be updated to guarantee correct locked-state display on both the "re-run" and "drag-in reload" paths.
+
 ---
 
 ## Thinking / Reasoning Mode

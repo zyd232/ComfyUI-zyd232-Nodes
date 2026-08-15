@@ -511,6 +511,10 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 "reference images, videos and audio. Connect image_0 to reveal image_1, "
                 "and so on (same pattern as MiniMax H3 Reference to Video)."
             ),
+            # Request the executing prompt and extra_pnginfo so auto_lock can persist
+            # the locked result into both the backend prompt and the frontend canvas
+            # workflow (extra_pnginfo.workflow) for metadata reload.
+            hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
             inputs=[
                 # --- Configuration management widgets --- #
                 io.Combo.Input("config_select", options=list_config_files() or ["Default"],
@@ -1173,7 +1177,8 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             # Record whether this generation was stopped (incomplete) so that
             # fingerprint_inputs can force a re-run on the next execution. This
             # must be captured before clearing the active-generation registry.
-            _set_last_generation_stopped(_is_stopped())
+            _generation_was_stopped = _is_stopped()
+            _set_last_generation_stopped(_generation_was_stopped)
             # Always clear the active generation registry once execution finishes.
             _clear_active_generation()
 
@@ -1203,6 +1208,62 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                         send_post(fallback_slot_url, {}, timeout_sec=5)
             except Exception as e:
                 print(f"[zyd232 LLM] llama.cpp Unload request failed: {e}")
+
+        # --- Auto-lock persistence into the executing prompt & workflow ---
+        # When auto_lock is enabled and the generation completed (not stopped),
+        # write the generated text/reasoning into this node's inputs inside the
+        # currently-executing prompt AND into the frontend canvas workflow
+        # (extra_pnginfo.workflow).
+        #
+        # Why both? ComfyUI keeps two independent representations:
+        #   * prompt  -> backend execution API JSON (dynprompt.get_original_prompt())
+        #   * workflow -> frontend canvas UI workflow (extra_pnginfo.workflow)
+        # When a saved image/video is dragged back into ComfyUI, the frontend
+        # loads the *workflow* (not the prompt), so the LLM node's hidden widgets
+        # must be updated in BOTH so the Streaming Text panel shows the locked
+        # state and text after reload.
+        if auto_lock and not _generation_was_stopped:
+            try:
+                hidden = getattr(cls, "hidden", None)
+                # 1) Update the backend execution prompt (same mutable reference
+                #    returned by dynprompt.get_original_prompt()).
+                prompt = getattr(hidden, "prompt", None) if hidden is not None else None
+                if prompt is not None:
+                    node_prompt = prompt.get(str(node_id), {}).get("inputs", {})
+                    node_prompt["use_locked"] = True
+                    node_prompt["locked_text"] = final_text
+                    node_prompt["locked_reasoning"] = reasoning
+                    print("[zyd232 LLM] Auto-lock persisted into executing prompt for metadata.")
+                # 2) Update the frontend canvas workflow (extra_pnginfo.workflow)
+                #    so dragging the saved image back in shows the locked state.
+                extra_pnginfo = getattr(hidden, "extra_pnginfo", None) if hidden is not None else None
+                workflow = (extra_pnginfo or {}).get("workflow") if isinstance(extra_pnginfo, dict) else None
+                if isinstance(workflow, dict):
+                    nodes_list = workflow.get("nodes")
+                    if isinstance(nodes_list, list):
+                        for wf_node in nodes_list:
+                            if not isinstance(wf_node, dict):
+                                continue
+                            # Match by id first, fall back to type.
+                            if str(wf_node.get("id")) != str(node_id) and wf_node.get("type") != "zyd232 LLMGenerator":
+                                continue
+                            named = wf_node.get("widgets_values_named")
+                            if isinstance(named, dict):
+                                named["use_locked"] = True
+                                named["locked_text"] = final_text
+                                named["locked_reasoning"] = reasoning
+                            else:
+                                wv = wf_node.get("widgets_values")
+                                if isinstance(wv, list) and len(wv) >= 3:
+                                    # use_locked / locked_text / locked_reasoning are the
+                                    # last three schema widgets (buttons are serialize:false).
+                                    wv[-3] = True
+                                    wv[-2] = final_text
+                                    wv[-1] = reasoning
+                            print("[zyd232 LLM] Auto-lock persisted into workflow for reload.")
+                            break
+            except Exception as e:
+                print(f"[zyd232 LLM] Failed to auto-lock prompt: {e}")
 
         return io.NodeOutput(final_text, reasoning)
 
