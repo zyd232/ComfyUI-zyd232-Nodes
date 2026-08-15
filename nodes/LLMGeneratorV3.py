@@ -586,8 +586,8 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 # --- Multimodal sampling controls --- #
                 io.Float.Input("video_fps", default=1.0, min=0.1, max=30.0, step=0.1,
                     tooltip="Frames per second sampled from each reference video"),
-                io.Int.Input("max_video_frames", default=16, min=1, max=128,
-                    tooltip="Maximum number of frames sent per video (to avoid exceeding context length)"),
+                io.Int.Input("max_video_frames", default=-1, min=-1,
+                    tooltip="Maximum number of frames sent per video (to avoid exceeding context length). Set to -1 or 0 to disable the cap and send all frames."),
                 io.Boolean.Input("enable_audio", default=False, label_on="Enable", label_off="Disable",
                     tooltip="Encode and send audio references to the API (only if the model supports audio)"),
 
@@ -767,7 +767,9 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         The video input is a raw frame tensor [B, H, W, C] (B = frame count) with no
         frame-rate metadata, so ``video_fps`` is interpreted as a sampling density:
         roughly ``video_fps`` frames are kept per second of video, capped by
-        ``max_video_frames``. Frames are sampled uniformly across the clip.
+        ``max_video_frames``. When ``max_video_frames`` is -1 or 0 the cap is
+        disabled and all sampled frames are kept. Frames are sampled uniformly
+        across the clip.
         """
         result = []
         for key, video in (videos or {}).items():
@@ -780,10 +782,13 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 continue
             # Estimate the number of frames to keep based on sampling density.
             # Without a known source fps we treat video_fps as "frames kept per
-            # 24 source frames" (a common video fps), then clamp to the hard cap.
+            # 24 source frames" (a common video fps). When max_video_frames is
+            # -1 or 0 the cap is disabled and all sampled frames are kept.
             density = max(0.1, float(video_fps))
             n = int(round(total * min(1.0, density / 24.0)))
-            n = max(1, min(n, max_video_frames, total))
+            if max_video_frames and max_video_frames > 0:
+                n = min(n, max_video_frames)
+            n = max(1, min(n, total))
             # Uniformly sample n indices across the video
             indices = np.linspace(0, total - 1, n).astype(int)
             for frame_index, i in enumerate(indices):
@@ -1036,12 +1041,19 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             with _active_generation_lock:
                 return bool(_active_generation.get("stopped"))
 
-        def send_post(url, payload_dict, timeout_sec=timeout):
+        def send_post(url, payload_dict, timeout_sec=timeout, push_done=True):
             """Send a streaming (SSE) chat completion request and accumulate the result.
 
             Returns a tuple (full_text, reasoning). The response object is kept in
             the active-generation registry so the Stop button can close it, which
             makes readline() raise and lets execute() return the partial text.
+
+            ``push_done`` controls whether the terminal ``done`` event is pushed to
+            the frontend. It must be True only for the actual LLM generation call.
+            The unload requests reuse this helper to POST to the server, but they
+            must NOT emit a ``done`` event: doing so would make the frontend treat
+            the unload response as the end of the generation and (with auto_lock)
+            lock the partial/stopped result. Pass ``push_done=False`` for those.
             """
             req = urllib.request.Request(
                 url, data=json.dumps(payload_dict).encode('utf-8'),
@@ -1113,8 +1125,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                         acc_reasoning += reasoning_part
                         _push_stream_event(node_id, "", reasoning_part, done=False, stopped=False)
 
-                # Signal completion so the frontend can finalize the display.
-                _push_stream_event(node_id, "", "", done=True, stopped=_is_stopped())
+                # Signal completion so the frontend can finalize the display. Only
+                # the actual LLM generation call (push_done=True) emits this event;
+                # unload requests reuse send_post but must not signal completion.
+                if push_done:
+                    _push_stream_event(node_id, "", "", done=True, stopped=_is_stopped())
                 return acc_text, acc_reasoning
             finally:
                 try:
@@ -1193,7 +1208,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     urllib.request.urlopen(req_del, timeout=5)
                 except urllib.error.HTTPError as e:
                     if e.code not in [200, 204]:
-                        send_post(full_unload_url, {"action": "unload", "model": actual_model, "keep_alive": 0}, timeout_sec=5)
+                        send_post(full_unload_url, {"action": "unload", "model": actual_model, "keep_alive": 0}, timeout_sec=5, push_done=False)
             except Exception as e:
                 print(f"[zyd232 LLM] General Unload failed: {e}")
 
@@ -1201,11 +1216,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             try:
                 print(f"[zyd232 LLM] Sending unload signal to llama.cpp at: {full_llama_url} for model: {actual_model}...")
                 try:
-                    send_post(full_llama_url, {"model": actual_model}, timeout_sec=5)
+                    send_post(full_llama_url, {"model": actual_model}, timeout_sec=5, push_done=False)
                 except urllib.error.HTTPError as e:
                     if e.code in [404, 502]:
                         fallback_slot_url = f"{clean_base_url}/slots/0?action=release"
-                        send_post(fallback_slot_url, {}, timeout_sec=5)
+                        send_post(fallback_slot_url, {}, timeout_sec=5, push_done=False)
             except Exception as e:
                 print(f"[zyd232 LLM] llama.cpp Unload request failed: {e}")
 
@@ -1270,3 +1285,4 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
 
 NODE_CLASS_MAPPINGS = {"zyd232 LLMGenerator": zyd232_LLMGeneratorV3}
 NODE_DISPLAY_NAME_MAPPINGS = {"zyd232 LLMGenerator": "LLM Text Generator"}
+

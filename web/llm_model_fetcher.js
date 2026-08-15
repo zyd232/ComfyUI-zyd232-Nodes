@@ -109,6 +109,16 @@ app.registerExtension({
                 }
             }
 
+            // Remove the front-end upper limit on max_video_frames. ComfyUI's
+            // ComfyWidgets.INT defaults `max` to 2048 when the backend does not
+            // specify one, which would prevent entering values above 2048. We
+            // raise it to the maximum safe integer and allow -1/0 (no cap).
+            const maxFramesWidget = node.widgets.find(w => w.name === "max_video_frames");
+            if (maxFramesWidget) {
+                maxFramesWidget.options.max = Number.MAX_SAFE_INTEGER;
+                maxFramesWidget.options.min = -1;
+            }
+
             // ---- Core widgets (already existed) ----
             const baseUrlWidget = node.widgets.find(w => w.name === "base_url");
             const apiKeyWidget = node.widgets.find(w => w.name === "api_key");
