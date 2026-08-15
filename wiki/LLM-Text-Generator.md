@@ -1,167 +1,173 @@
+<div align="center">
+
 # LLM Text Generator
 
-> 返回 [Wiki 首页](Home)
+[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](zh-CN/LLM-Text-Generator)
 
-## 概述
+</div>
 
-**LLM Text Generator** 节点用于连接任意 **OpenAI 兼容** 的 LLM 服务（Ollama、vLLM、llama.cpp、LocalAI 等）在 ComfyUI 工作流内进行文本生成。它支持多张参考图片、视频和音频，并可通过流式（SSE）方式实时显示生成结果。
+> Back to [Wiki Home](Home)
 
-- **类名**：`zyd232 LLMGenerator`
-- **类别**：`zyd232 Nodes/LLM`
-- **输出**：`text`（最终答案）、`reasoning`（思考过程）
+## Overview
 
----
+The **LLM Text Generator** node connects to any **OpenAI-compatible** LLM service (Ollama, vLLM, llama.cpp, LocalAI, etc.) for text generation inside ComfyUI workflows. It supports multiple reference images, videos, and audio, and can display generated text in real time via streaming (SSE).
 
-## 目录
-
-- [配置预设系统](#配置预设系统)
-- [API Key 与环境变量](#api-key--环境变量)
-- [模型选择](#模型选择)
-- [多模态输入（图片 / 视频 / 音频）](#多模态输入图片--视频--音频)
-- [流式文本显示](#流式文本显示)
-- [锁定结果](#锁定结果)
-- [思考 / 推理模式](#思考--推理模式)
-- [其他参数速查](#其他参数速查)
+- **Class name**: `zyd232 LLMGenerator`
+- **Category**: `zyd232 Nodes/LLM`
+- **Outputs**: `text` (final answer), `reasoning` (thinking process)
 
 ---
 
-## 配置预设系统
+## Table of Contents
 
-保存所有设置（API URL、Key、模型、提示词、参数）为**命名预设**，一键切换。预设存储在单个 JSON 文件中（`presets/llm_text_generator_presets.json`）。
-
-### 使用方法
-
-1. **配置节点** — 填写 `base_url`、`api_key`，选择模型，编写提示词并设置其他参数。
-2. **命名预设** — 在 **config_name** 字段输入名称（如 "My Ollama"、"GPT-4o"）。非法文件系统字符会被自动移除。
-3. **保存** — 点击 **💾 Save Config & Hide API**。所有当前设置会以该名称保存，且 `api_key` 会以 `********` 隐藏以保障安全。
-4. **切换预设** — 从 **config_select** 下拉框选择任意已保存的预设，所有字段自动填充（无需单独的 "Load" 按钮）。
-5. **删除** — 在下拉框选中预设后点击 **🗑 Delete**。内置的 "Default" 预设不可删除。
-6. **刷新列表** — 点击 **🔄 Refresh Config List** 可随时重新加载预设下拉框。
-
-### 提示
-
-- **"Default"** 始终作为回退预设可用。
-- 保存后 `api_key` 显示为 `********`，但真实 Key 仍在后台使用。
-- 可为不同 LLM 后端创建独立预设（如一个给 Ollama、一个给 vLLM），并即时切换。
+- [Config Preset System](#config-preset-system)
+- [API Key & Environment Variables](#api-key--environment-variables)
+- [Model Selection](#model-selection)
+- [Multimodal Inputs (Images / Videos / Audio)](#multimodal-inputs-images--videos--audio)
+- [Streaming Text Display](#streaming-text-display)
+- [Lock Result](#lock-result)
+- [Thinking / Reasoning Mode](#thinking--reasoning-mode)
+- [Other Parameters Quick Reference](#other-parameters-quick-reference)
 
 ---
 
-## API Key & 环境变量
+## Config Preset System
 
-- `api_key` 字段接受明文 Key，或 `ENV:var_name` 以在运行时从环境变量读取。
-- 若控件显示掩码占位符 `********`，真实 Key 会自动从已保存的预设加载。
-- 作为最后手段，节点会回退到 **Default** 预设中存储的 `api_key`。
+Save all your settings (API URL, key, model, prompts, parameters) as named presets and switch between them with one click. Presets are stored in a single JSON file (`presets/llm_text_generator_presets.json`).
 
----
+### How to use
 
-## 模型选择
+1. **Configure the node** — Fill in `base_url`, `api_key`, choose a model, write your prompts, and set other parameters.
+2. **Name your preset** — Type a name into the **config_name** field (e.g., "My Ollama", "GPT-4o"). Invalid file-system characters are automatically removed.
+3. **Save** — Click **💾 Save Config & Hide API**. All current settings are saved under that name, and your `api_key` is hidden as `********` for security.
+4. **Switch presets** — Pick any saved preset from the **config_select** dropdown. All fields are filled in automatically (no separate "Load" button needed).
+5. **Delete** — Select a preset in the dropdown, then click **🗑 Delete**. The built-in "Default" preset cannot be deleted.
+6. **Refresh list** — Click **🔄 Refresh Config List** to reload the preset dropdown at any time.
 
-提供两个下拉选择器：
+### Tips
 
-- **model_select** — 选择视觉模型（当连接了图片/视频/音频时使用）。选择后下拉框会重置为占位符。
-- **model_NoVision_select** — 选择纯文本模型（当未连接媒体时使用）。选择后同样会重置。
-
-你也可以直接在 **model** / **model_NoVision** 文本字段中手动输入模型名。点击 **🔄 Refresh Model List** 可从 API 服务器重新获取可用模型。
-
-> 当未连接任何图片/视频/音频输入时，节点自动使用 **model_NoVision**。若该模型失败，则回退到 **model**。
-
----
-
-## 多模态输入（图片 / 视频 / 音频）
-
-节点通过自动增长（Autogrow）输入支持多张参考图片、视频和音频：
-
-| 输入 | 说明 | 数量上限 |
-|------|------|---------|
-| **images** | 参考图片（`image_0`、`image_1` …），转换为 base64 PNG 发送 | 0–9 |
-| **videos** | 参考视频（`video_0` …），采样帧作为图片发送 | 0–3 |
-| **video_audios** | 与同编号参考视频对应的音轨（`video_audio_0` …） | 0–3 |
-| **audios** | 独立参考音频（`audio_0` …） | 0–5 |
-
-> 输入遵循与 MiniMax H3 Reference to Video 相同的模式：连接 `image_0` 会显示 `image_1`，以此类推。
-
-### 视频采样控制
-
-- **video_fps** — 从每个参考视频采样的帧率（默认 `1.0`）。
-- **max_video_frames** — 每个视频发送的最大帧数，避免超出上下文长度（默认 `16`）。
-
-### 音频控制
-
-- **enable_audio** — 编码并发送音频参考到 API。仅当模型支持音频输入时启用。音频会转换为 base64 WAV。
+- **"Default"** is always available as a fallback preset.
+- After saving, your `api_key` shows as `********` but the real key is still used behind the scenes.
+- Create separate presets for different LLM backends (e.g., one for Ollama, one for vLLM) and switch instantly.
 
 ---
 
-## 流式文本显示
+## API Key & Environment Variables
 
-节点在节点右侧的**浮动面板**上实时显示生成的文本。随着 WebSocket 分块到达，面板在模型仍在生成时实时更新。面板是 DOM 覆盖层，会跟随节点移动或画布缩放/平移，且不会遮挡节点控件。
-
-面板支持：
-
-- **折叠 / 展开**（`▼` / `▶`）— 隐藏或显示面板。
-- **显示 / 隐藏推理**（`🧠` / `🚫`）— 切换推理块。
-- **锁定 / 解锁结果**（`🔒` / `🔓`）— 锁定当前输出，使其保存到工作流并在下次运行时直接复用（见下文）。
-- **清除**（`✕`）— 清除显示文本。结果锁定时禁用（需先解锁）。
-- **复制**（`⧉`）— 将显示文本复制到剪贴板。
-- **自动滚动** — 流式传输时面板保持滚动到底部；手动滚动可暂停自动滚动。
+- The `api_key` field accepts a plain key, or `ENV:var_name` to read the key from an environment variable at runtime.
+- If the widget shows the masked placeholder `********`, the real key is loaded from the saved preset automatically.
+- As a last resort, the node falls back to the `api_key` stored in the **Default** preset.
 
 ---
 
-## 锁定结果
+## Model Selection
 
-生成完成后，你可以**锁定**结果，使其存储在工作流内部。这在保存或分享工作流时非常有用：其他用户（或后续重新运行）将直接使用锁定的输出，**完全跳过 LLM 服务调用**。
+Two dropdown selectors are provided:
 
-### 使用方法
+- **model_select** — Pick a vision model (used when an image/video/audio is connected). After picking, the dropdown resets to the placeholder.
+- **model_NoVision_select** — Pick a text-only model (used when no media is connected). Resets after picking too.
 
-1. 运行节点并等待生成完成。
-2. 点击流式文本面板标题栏上的 **🔒 Lock** 按钮。当前输出（以及推理，若显示）会保存到工作流中。
-3. 照常保存工作流 — 锁定结果会嵌入工作流 JSON。
-4. 重新运行工作流时（由你或任何加载共享文件的人），节点直接返回锁定的文本/推理，无需联系 LLM 服务器。下游节点照常消费锁定结果。
-5. 要再次生成新输出，点击 **🔓 Unlock** 并重新运行。
+You can also type model names directly into the **model** / **model_NoVision** text fields. Click **🔄 Refresh Model List** to re-fetch available models from your API server.
 
-### 注意事项
-
-- 悬停锁定按钮会显示说明其功能的工具提示。
-- 锁定时 **Clear** 按钮被禁用，防止误删锁定结果；先解锁再清除。
-- 允许锁定空结果（即锁定空输出）。
-- 解锁会改变节点输入，使 ComfyUI 缓存失效，强制节点在下次执行时重新运行 LLM。
+> When no image/video/audio input is connected, the node automatically uses **model_NoVision**. If that model fails, it falls back to **model**.
 
 ---
 
-## 思考 / 推理模式
+## Multimodal Inputs (Images / Videos / Audio)
 
-启用 **thinking** 可将模型的推理链与最终答案分离。使用自定义标签（默认 `<think>` / `</think>`）。推理输出到 `reasoning` 输出，答案输出到 `text` 输出。
+The node supports multiple reference images, videos, and audio via autogrow inputs:
 
-- **thinking** — 启用/禁用思考模式。
-- **think_start_tag** — 标记思考内容开始的起始标签（默认 `<think>`）。
-- **think_end_tag** — 标记思考内容结束的结束标签（默认 `</think>`）。
+| Input | Description | Max count |
+|-------|-------------|-----------|
+| **images** | Reference images (`image_0`, `image_1`, …), converted to base64 PNG | 0–9 |
+| **videos** | Reference videos (`video_0`, …); frames are sampled and sent as images | 0–3 |
+| **video_audios** | Soundtrack of the same-numbered reference video (`video_audio_0`, …) | 0–3 |
+| **audios** | Standalone reference audio (`audio_0`, …) | 0–5 |
 
----
+> The inputs follow the same pattern as MiniMax H3 Reference to Video: connect `image_0` to reveal `image_1`, and so on.
 
-## 其他参数速查
+### Video sampling controls
 
-| 参数 | 作用 | 何时启用 |
-|------|------|---------|
-| **cache_prompt** | 让服务器缓存提示词以加快重复响应 | 服务器支持缓存（如 vLLM） |
-| **clean_comfy_vram_before_gen** | 发送 LLM 请求前释放 ComfyUI GPU 内存 | 显存有限 |
-| **unload_after_gen** | 生成后向服务器发送卸载命令 | 使用 vLLM、Ollama、LocalAI 等 |
-| **unload_endpoint** | 通用卸载请求使用的 API 端点路径 | 自定义服务器卸载路径 |
-| **llama_cpp_unload** | 通过 llama.cpp 专用端点卸载 | 使用 llama.cpp 服务器 |
-| **llama_endpoint** | llama.cpp 卸载 API 端点路径 | 使用 llama.cpp 服务器 |
-| **context_length** | 上下文窗口大小（`num_ctx` / `n_ctx`）；`-1`/`0` 使用服务器默认值 | 控制内存占用 / 上下文大小 |
-| **video_fps** | 从每个参考视频采样的帧率 | 使用视频输入 |
-| **max_video_frames** | 每个视频发送的最大帧数（避免超出上下文长度） | 使用视频输入 |
-| **enable_audio** | 编码并发送音频参考到 API | 模型支持音频输入 |
-| **temperature** | 随机性：越高越有创意，越低越稳定（默认 `0.7`） | 控制输出风格 |
-| **top_k** | 从 top K 候选中选择下一个词（默认 `40`） | 控制多样性 |
-| **seed** | 随机种子，用于可复现性；`-1` 为随机（默认 `-1`） | 需要可复现输出 |
-| **timeout** | LLM 生成请求的超时秒数（默认 `180`） | 长任务 |
+- **video_fps** — Frames per second sampled from each reference video (default `1.0`).
+- **max_video_frames** — Maximum number of frames sent per video to avoid exceeding the context length (default `16`).
+
+### Audio controls
+
+- **enable_audio** — Encode and send audio references to the API. Only enable if the model supports audio input. Audio is converted to base64 WAV.
 
 ---
 
-## 停止生成
+## Streaming Text Display
 
-点击 **⏹ Stop Generation** 按钮可中断当前运行的请求。节点使用流式（SSE）生成；点击 Stop 会关闭活动连接，使服务器停止生成，节点返回目前已累积的文本。
+The node shows the generated text in real time on a floating panel to the right of the node. As chunks arrive over WebSocket, the panel updates live while the model is still generating. The panel is a DOM overlay that follows the node when it is moved or the canvas is zoomed/panned, and it never overlaps the node's widgets.
+
+The panel supports:
+
+- **Collapse / Expand** (`▼` / `▶`) — hide or show the panel.
+- **Show / Hide Reasoning** (`🧠` / `🚫`) — toggle the reasoning block.
+- **Lock / Unlock Result** (`🔒` / `🔓`) — lock the current output so it is saved into the workflow and reused on the next run without calling the LLM again (see below).
+- **Clear** (`✕`) — clear the displayed text. Disabled while the result is locked (unlock first).
+- **Copy** (`⧉`) — copy the displayed text to the clipboard.
+- **Auto-scroll** — the panel stays scrolled to the bottom while streaming; scroll manually to pause auto-scroll.
 
 ---
 
-> 返回 [Wiki 首页](Home)
+## Lock Result
+
+When you finish a generation, you can **lock** the result so it is stored inside the workflow itself. This is useful when you want to save or share a workflow: other users (or a later re-run) will use the locked output directly and **skip the LLM service call entirely**.
+
+### How to use
+
+1. Run the node and wait for the generation to finish.
+2. Click the **🔒 Lock** button on the Streaming Text panel's title bar. The current output (and reasoning, if shown) is saved into the workflow.
+3. Save the workflow as usual — the locked result is embedded in the workflow JSON.
+4. When the workflow is re-run (by you or anyone who loads the shared file), the node returns the locked text/reasoning directly without contacting the LLM server. Downstream nodes consume the locked result as normal.
+5. To generate fresh output again, click **🔓 Unlock** and re-run.
+
+### Notes
+
+- Hovering over the lock button shows a tooltip explaining its function.
+- While locked, the **Clear** button is disabled so the locked result cannot be accidentally wiped; unlock first to clear.
+- Locking an empty result is allowed (it simply locks an empty output).
+- Unlocking changes the node's inputs, which invalidates ComfyUI's cache and forces the node to re-run the LLM on the next execution.
+
+---
+
+## Thinking / Reasoning Mode
+
+Enable **thinking** to separate the model's reasoning chain from its final answer. Uses custom tags (`<think>` / `</think>` by default). Reasoning goes to the `reasoning` output, the answer to the `text` output.
+
+- **thinking** — Enable/disable thinking mode.
+- **think_start_tag** — Opening tag to mark the start of thinking content (default `<think>`).
+- **think_end_tag** — Closing tag to mark the end of thinking content (default `</think>`).
+
+---
+
+## Other Parameters Quick Reference
+
+| Parameter | What It Does | When to Enable |
+|-----------|-------------|----------------|
+| **cache_prompt** | Tells the server to cache prompts for faster repeated responses | Server supports caching (e.g., vLLM) |
+| **clean_comfy_vram_before_gen** | Frees ComfyUI GPU memory before sending the LLM request | Limited VRAM |
+| **unload_after_gen** | Sends an unload command to the server after generation | Using vLLM, Ollama, LocalAI, etc. |
+| **unload_endpoint** | API endpoint path used for the general unload request | Custom server unload path |
+| **llama_cpp_unload** | Unloads via llama.cpp-specific endpoint | Using a llama.cpp server |
+| **llama_endpoint** | llama.cpp unload API endpoint path | Using a llama.cpp server |
+| **context_length** | Context window size (`num_ctx` / `n_ctx`); `-1`/`0` uses server default | Control memory usage / context size |
+| **video_fps** | Frames per second sampled from each reference video | Using video inputs |
+| **max_video_frames** | Max frames sent per video (avoids exceeding context length) | Using video inputs |
+| **enable_audio** | Encode and send audio references to the API | Model supports audio input |
+| **temperature** | Randomness: higher is more creative, lower is more stable (default `0.7`) | Control output style |
+| **top_k** | Pick next word from top K candidates (default `40`) | Control diversity |
+| **seed** | Random seed for reproducibility; `-1` for random (default `-1`) | Reproducible output |
+| **timeout** | Timeout in seconds for the LLM generation request (default `180`) | Long-running tasks |
+
+---
+
+## Stop Generation
+
+Click the **⏹ Stop Generation** button to interrupt the currently running request. The node uses streaming (SSE) generation; clicking Stop closes the active connection, which makes the server stop generating and the node return the text accumulated so far.
+
+---
+
+> Back to [Wiki Home](Home)

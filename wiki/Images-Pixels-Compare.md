@@ -1,58 +1,64 @@
+<div align="center">
+
 # Images Pixels Compare
 
-> 返回 [Wiki 首页](Home)
+[![简体中文](https://img.shields.io/badge/简体中文-文档-blue)](zh-CN/Images-Pixels-Compare)
 
-## 概述
+</div>
 
-**Images Pixels Compare** 节点用于**像素级比较**两张输入图片是否完全相同，并输出一个布尔值。
+> Back to [Wiki Home](Home)
 
-- **类名**：`zyd232 ImagesPixelsCompare`
-- **类别**：`zyd232 Nodes`
-- **输出**：`BOOLEAN`
+## Overview
 
----
+The **Images Pixels Compare** node compares two input images at the **pixel level** to check whether they are exactly the same, and outputs a boolean value.
 
-## 输入
-
-| 输入 | 类型 | 说明 |
-|------|------|------|
-| **image1** | `IMAGE` | 第一张待比较图片 |
-| **image2** | `IMAGE` | 第二张待比较图片 |
-| **if_same_output** | `BOOLEAN` | 输出逻辑开关（默认 `true`） |
+- **Class name**: `zyd232 ImagesPixelsCompare`
+- **Category**: `zyd232 Nodes`
+- **Output**: `BOOLEAN`
 
 ---
 
-## 输出
+## Inputs
 
-| 输出 | 类型 | 说明 |
-|------|------|------|
-| **BOOLEAN** | `BOOLEAN` | 比较结果 |
-
----
-
-## 功能说明
-
-节点会比较两张图片的**所有像素值**是否完全相同：
-
-- 当 `if_same_output = true` 时，输出 `true` 表示两张图片**完全相同**，`false` 表示不同。
-- 当 `if_same_output = false` 时，输出逻辑**反转**：输出 `true` 表示两张图片**不同**，`false` 表示相同。
-
-### 尺寸不同的情况
-
-如果两张图片的**尺寸（shape）不同**，节点无法进行逐像素比较，此时会根据开关状态返回：
-
-- `if_same_output = true` → 返回 `false`（视为不同）
-- `if_same_output = false` → 返回 `true`（视为不同）
+| Input | Type | Description |
+|-------|------|-------------|
+| **image1** | `IMAGE` | First image to compare |
+| **image2** | `IMAGE` | Second image to compare |
+| **if_same_output** | `BOOLEAN` | Output logic switch (default `true`) |
 
 ---
 
-## 使用示例
+## Output
 
-常用于流程控制，例如：
-
-- 判断某一步骤的输出图片是否发生变化，从而决定是否继续后续处理。
-- 结合 `if_same_output` 开关，实现「相同则执行 A，不同则执行 B」的分支逻辑。
+| Output | Type | Description |
+|--------|------|-------------|
+| **BOOLEAN** | `BOOLEAN` | Comparison result |
 
 ---
 
-> 返回 [Wiki 首页](Home)
+## How It Works
+
+The node compares **all pixel values** of the two images to check if they are identical:
+
+- When `if_same_output = true`, it outputs `true` if the two images are **identical**, `false` if they differ.
+- When `if_same_output = false`, the output logic is **inverted**: it outputs `true` if the two images **differ**, `false` if they are identical.
+
+### Different sizes
+
+If the two images have **different shapes (sizes)**, the node cannot compare pixel by pixel. In that case it returns based on the switch:
+
+- `if_same_output = true` → returns `false` (treated as different)
+- `if_same_output = false` → returns `true` (treated as different)
+
+---
+
+## Usage Example
+
+Useful for workflow control, for example:
+
+- Determine whether the output image of a step has changed, to decide whether to continue downstream processing.
+- Combine with the `if_same_output` switch to implement "if same, do A; if different, do B" branching logic.
+
+---
+
+> Back to [Wiki Home](Home)

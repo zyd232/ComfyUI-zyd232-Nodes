@@ -1,36 +1,42 @@
+<div align="center">
+
 # ComfyUI zyd232 Nodes
 
-一组用于 [ComfyUI](https://github.com/comfyanonymous/ComfyUI) 的自定义节点，包含 LLM 文本生成、图片像素对比、图片保存预览与 Mask 批量混合等功能。
+[![中文](https://img.shields.io/badge/简体中文-README-blue)](README.zh-CN.md)
 
-> 📖 **完整文档请浏览 [Wiki](wiki/Home.md)** — 以节点为单位详细介绍每个节点的功能、输入输出与使用技巧。
+</div>
 
----
+A collection of custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI), including LLM text generation, image pixel comparison, image save/preview, and mask batch blending.
 
-## 📦 安装
-
-1. 将本插件目录放入 `ComfyUI/custom_nodes/` 下。
-2. 重启 ComfyUI。
-3. 节点会出现在 **zyd232 Nodes** 分类中。
+> 📖 **Full documentation is available in the [Wiki](wiki/Home.md)** — each node is documented individually with its features, inputs/outputs, and usage tips.
 
 ---
 
-## 🧩 节点索引
+## 📦 Installation
 
-| 节点名称 | 类别 | 功能简介 | 文档 |
-|---------|------|---------|------|
-| **LLM Text Generator** | `zyd232 Nodes/LLM` | 连接任意 OpenAI 兼容 LLM 服务进行文本生成，支持多图/视频/音频、流式显示、配置预设、结果锁定 | [📄 文档](wiki/LLM-Text-Generator.md) |
-| **Images Pixels Compare** | `zyd232 Nodes` | 像素级比较两张图片是否完全相同，输出布尔值 | [📄 文档](wiki/Images-Pixels-Compare.md) |
-| **Save Preview Images** | `zyd232 Nodes` | 保存图片（PNG/JPG），支持质量、元数据、自定义路径、工作流 JSON 与预览 | [📄 文档](wiki/Save-Preview-Images.md) |
-| **Mask Batch Blend** | `zyd232 Nodes` | 将多个 Mask 通过 add / max / average 操作合并为一个 | [📄 文档](wiki/Mask-Batch-Blend.md) |
+1. Place this plugin directory under `ComfyUI/custom_nodes/`.
+2. Restart ComfyUI.
+3. The nodes will appear under the **zyd232 Nodes** category.
 
 ---
 
-## 🚀 快速开始
+## 🧩 Node Index
 
-在 ComfyUI 节点搜索框中输入节点名称即可找到对应节点。每个节点的详细用法请点击上方文档链接，或浏览 [Wiki 首页](wiki/Home.md)。
+| Node | Category | Description | Docs |
+|------|----------|-------------|------|
+| **LLM Text Generator** | `zyd232 Nodes/LLM` | Connect to any OpenAI-compatible LLM service for text generation. Supports multiple images/videos/audio, streaming display, config presets, and result locking. | [📄 Docs](wiki/LLM-Text-Generator.md) |
+| **Images Pixels Compare** | `zyd232 Nodes` | Compare two images at the pixel level to check if they are identical; outputs a boolean. | [📄 Docs](wiki/Images-Pixels-Compare.md) |
+| **Save Preview Images** | `zyd232 Nodes` | Save images (PNG/JPG) with quality, metadata, custom path, workflow JSON, and preview options. | [📄 Docs](wiki/Save-Preview-Images.md) |
+| **Mask Batch Blend** | `zyd232 Nodes` | Blend multiple masks into one using add / max / average operations. | [📄 Docs](wiki/Mask-Batch-Blend.md) |
 
 ---
 
-## 📄 许可证
+## 🚀 Quick Start
 
-本项目基于 [LICENSE](LICENSE) 许可发布。
+Type a node name in the ComfyUI node search box to find it. For detailed usage of each node, click the docs link above or browse the [Wiki home](wiki/Home.md).
+
+---
+
+## 📄 License
+
+This project is released under the [LICENSE](LICENSE).

@@ -36,8 +36,8 @@ jobs:
         run: |
           # Remove existing wiki pages (except Home.md which we will overwrite)
           find wiki-repo -type f -name "*.md" -delete
-          # Copy all wiki markdown files from the source directory
-          cp wiki/*.md wiki-repo/
+          # Copy all wiki markdown files recursively (English + zh-CN)
+          cp -r wiki/. wiki-repo/
           # Ensure Home.md exists as the wiki landing page
           if [ ! -f wiki-repo/Home.md ]; then
             echo "# ComfyUI zyd232 Nodes" > wiki-repo/Home.md
