@@ -25,15 +25,6 @@
 
 ## 🚀 快速开始
 
-### 方式一：ComfyUI Manager（推荐）
-
-1. 若尚未安装，请先安装 [ComfyUI-Manager](https://github.com/ltdrdata/ComfyUI-Manager)。
-2. 在 ComfyUI 界面中点击 **Manager** → **Custom Nodes Manager**。
-3. 在搜索框中输入 `zyd232` 或 `ComfyUI-zyd232-Nodes`。
-4. 点击 **Install** 安装，安装完成后重启 ComfyUI。
-
-### 方式二：Git Clone
-
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/zyd232/ComfyUI-zyd232-Nodes.git
