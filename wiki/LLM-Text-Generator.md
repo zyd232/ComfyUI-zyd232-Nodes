@@ -86,6 +86,28 @@ The node supports multiple reference images, videos, and audio via autogrow inpu
 
 > The inputs follow the same pattern as MiniMax H3 Reference to Video: connect `image_0` to reveal `image_1`, and so on.
 
+### ⚠️ Input port numbering (0-based) vs. prompt numbering (1-based)
+
+**Input ports** are numbered starting from **0** (`image_0`, `image_1`, `video_0`, …), but the **prompt labels** sent to the LLM start from **1** (`image_1`, `image_2`, `video_1`, …). The two differ by **1** — do not confuse them.
+
+| Input port (0-based) | Prompt label (1-based) |
+|----------------------|------------------------|
+| `image_0` | `image_1` |
+| `image_1` | `image_2` |
+| `image_2` | `image_3` |
+| `video_0` | `video_1` |
+| `video_1` | `video_2` |
+| `video_audio_0` | `video_audio_1` |
+| `audio_0` | `audio_1` |
+
+Video frame labels also start from 1: `video_1_frame_1`, `video_1_frame_2`, … (corresponding to frames 1 and 2 of input port `video_0`).
+
+**Example**: Suppose you connect 3 reference images (input ports `image_0`, `image_1`, `image_2`). In your prompt you should refer to them like this:
+
+> Compare the composition of **image_1** and **image_2**, and describe the subject in **image_3**.
+
+Here `image_1` maps to input port `image_0`, `image_2` maps to `image_1`, and `image_3` maps to `image_2`. The node automatically annotates these 1-based labels in the media manifest sent to the model and instructs it to reference them by those numbers, so your prompt must use **1-based** numbering.
+
 ### Video sampling controls
 
 - **video_fps** — Sampling density per reference video (default `1.0`). Assumes the source video is 24fps: keeps `video_fps` frames per 24 source frames (`n = total * video_fps/24`), then capped by `max_video_frames`.

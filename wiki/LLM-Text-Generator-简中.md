@@ -86,6 +86,28 @@
 
 > 输入遵循与 MiniMax H3 Reference to Video 相同的模式：连接 `image_0` 会显示 `image_1`，以此类推。
 
+### ⚠️ 输入端口编号（0 based）与提示词编号（1 based）的区别
+
+**输入端口**从 **0** 开始编号（`image_0`、`image_1`、`video_0` …），但发送给 LLM 的**提示词标签**从 **1** 开始编号（`image_1`、`image_2`、`video_1` …）。两者相差 **1**，请勿混淆。
+
+| 输入端口（0 based） | 提示词标签（1 based） |
+|---------------------|----------------------|
+| `image_0` | `image_1` |
+| `image_1` | `image_2` |
+| `image_2` | `image_3` |
+| `video_0` | `video_1` |
+| `video_1` | `video_2` |
+| `video_audio_0` | `video_audio_1` |
+| `audio_0` | `audio_1` |
+
+视频帧的标签同样从 1 开始：`video_1_frame_1`、`video_1_frame_2` …（对应输入端口 `video_0` 的第 1、2 帧）。
+
+**示例**：假设你连接了 3 张参考图片（输入端口 `image_0`、`image_1`、`image_2`），在提示词中应这样引用：
+
+> 请比较 **image_1** 和 **image_2** 的构图，并描述 **image_3** 中的主体。
+
+这里 `image_1` 对应输入端口 `image_0`，`image_2` 对应 `image_1`，`image_3` 对应 `image_2`。节点会自动在发送给模型的媒体清单中标注这些 1 based 标签，并指示模型按该编号引用，因此提示词中必须使用 **1 based** 编号。
+
 ### 视频采样控制
 
 - **video_fps** — 每个参考视频的采样密度（默认 `1.0`）。假设原视频为 24fps：每 24 个源帧保留 `video_fps` 帧（`n = total * video_fps/24`），再受 `max_video_frames` 上限约束。
