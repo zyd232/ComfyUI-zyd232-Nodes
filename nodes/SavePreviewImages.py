@@ -1,75 +1,78 @@
 import os.path
 import folder_paths
 import datetime
-import shutil
 import random
 import json
 import numpy as np
 from PIL.PngImagePlugin import Image, PngInfo
+from comfy_api.latest import io
 
-def generate_random_name(prefix:str, suffix:str, length:int) -> str:
+
+def generate_random_name(prefix: str, suffix: str, length: int) -> str:
     name = ''.join(random.choice("abcdefghijklmnopqrstupvxyz1234567890") for x in range(length))
     return prefix + name + suffix
 
 
-def generate_random_name(prefix:str, suffix:str, length:int) -> str:
-    name = ''.join(random.choice("abcdefghijklmnopqrstupvxyz1234567890") for x in range(length))
-    return prefix + name + suffix
+class zyd232_SavePreviewImages(io.ComfyNode):
+    """保存预览图片节点"""
 
-
-class zyd232_SavePreviewImages:
-
-    def __init__(self):
-        self.output_dir = folder_paths.get_output_directory()
-        self.type = "output"
-        self.prefix_append = ""
-        self.compress_level = 4
+    prefix_append = ""
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "images": ("IMAGE",),
-                "save_image": ("BOOLEAN", {"default": True}),
-                "save_workflow_as_json": ("BOOLEAN", {"default": False}),
-                "preview": ("BOOLEAN", {"default": True}),
-                "format": (["png", "jpg"],),
-                "quality": ("INT", {"default": 85, "min": 0, "max": 100, "step": 1}),
-                "meta_data_png": ("BOOLEAN", {"default": True}),
-                "custom_path": ("STRING", {"default": "", "label": "Custom Path"}),
-                "filename_prefix": ("STRING", {"default": "ComfyUI_", "label": "Filename Prefix"}),
-                "timestamp": (["second", "millisecond", "None"],),
-            },
-            "hidden": {
-                "prompt": "PROMPT",
-                "extra_pnginfo": "EXTRA_PNGINFO"
-            }
-        }
+    def define_schema(cls):
+        return io.Schema(
+            node_id="zyd232_SavePreviewImages",
+            display_name="Save Preview Images",
+            category="zyd232 Nodes",
+            description="Save images to the output directory, optionally generating previews and workflow JSON.",
+            is_output_node=True,
+            inputs=[
+                io.Image.Input("images", display_name="Images",
+                    tooltip="Images to save"),
+                io.Boolean.Input("save_image", default=True,
+                    display_name="Save Image", label_on="Yes", label_off="No",
+                    tooltip="Whether to save the images to disk"),
+                io.Boolean.Input("save_workflow_as_json", default=False,
+                    display_name="Save Workflow as JSON", label_on="Yes", label_off="No",
+                    tooltip="Whether to save the workflow as a JSON file"),
+                io.Boolean.Input("preview", default=True,
+                    display_name="Preview", label_on="Yes", label_off="No",
+                    tooltip="Whether to generate preview images"),
+                io.Combo.Input("format", options=["png", "jpg"],
+                    display_name="Format", tooltip="Output image format"),
+                io.Int.Input("quality", default=85, min=0, max=100, step=1,
+                    display_name="Quality", tooltip="Image quality (jpg only)"),
+                io.Boolean.Input("meta_data_png", default=True,
+                    display_name="Write PNG Metadata", label_on="Yes", label_off="No",
+                    tooltip="Whether to write prompt info into PNG metadata"),
+                io.String.Input("custom_path", default="",
+                    display_name="Custom Path", tooltip="Custom save path, supports %date and %time placeholders"),
+                io.String.Input("filename_prefix", default="ComfyUI_",
+                    display_name="Filename Prefix", tooltip="Filename prefix, supports %date and %time placeholders"),
+                io.Combo.Input("timestamp", options=["second", "millisecond", "None"],
+                    display_name="Timestamp", tooltip="Filename timestamp mode"),
+            ],
+        )
 
-    RETURN_TYPES = ()
-    OUTPUT_NODE = True
-    FUNCTION = "save_image"
-    CATEGORY = "zyd232 Nodes"
-    NAME = "Save Preview Images"
-
-    def save_image(self, images, custom_path, filename_prefix,
-                        timestamp, format, quality, meta_data_png,
-                        save_workflow_as_json, preview, save_image, prompt=None, extra_pnginfo=None):
-
+    @classmethod
+    def execute(cls, images, custom_path, filename_prefix,
+                timestamp, format, quality, meta_data_png,
+                save_workflow_as_json, preview, save_image,
+                prompt=None, extra_pnginfo=None) -> io.NodeOutput:
+        output_dir = folder_paths.get_output_directory()
         now = datetime.datetime.now()
         custom_path = custom_path.replace("%date", now.strftime("%Y-%m-%d"))
         custom_path = custom_path.replace("%time", now.strftime("%H-%M-%S"))
         filename_prefix = filename_prefix.replace("%date", now.strftime("%Y-%m-%d"))
         filename_prefix = filename_prefix.replace("%time", now.strftime("%H-%M-%S"))
-        filename_prefix += self.prefix_append
-        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
+        filename_prefix += cls.prefix_append
+        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, output_dir, images[0].shape[1], images[0].shape[0])
         results = list()
         temp_dir = folder_paths.get_temp_directory()
 
         for image in images:
             i = 255. * image.cpu().numpy()
             img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
-
 
             metadata = None
             if meta_data_png:
@@ -157,12 +160,4 @@ class zyd232_SavePreviewImages:
 
             counter += 1
 
-        return { "ui": { "images": results } }
-
-
-NODE_CLASS_MAPPINGS = {
-    "zyd232_SavePreviewImages": zyd232_SavePreviewImages
-}
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "zyd232_SavePreviewImages": "Save Preview Images"
-}
+        return io.NodeOutput(ui={"images": results})

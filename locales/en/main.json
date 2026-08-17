@@ -1,0 +1,29 @@
+{
+    "ui": {
+        "model.placeholder": "Choose a model from the list",
+        "button.saveConfig": "💾 Save Config & Hide API",
+        "button.deleteConfig": "🗑 Delete Config",
+        "button.refreshConfig": "🔄 Refresh Config List",
+        "button.refreshModel": "🔄 Refresh Model List",
+        "button.stopGeneration": "⏹ Stop Generation",
+        "panel.title": "Streaming Text",
+        "status.idle": "○ Idle",
+        "status.streaming": "● Streaming...",
+        "status.done": "● Done",
+        "status.waiting": "Waiting for output...",
+        "header.reasoning": "── Reasoning ──",
+        "header.output": "── Output ──",
+        "tooltip.toggleReasoning": "Click to toggle reasoning",
+        "tooltip.lock": "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run",
+        "tooltip.unlock": "Click to unlock the result: allow the node to call the LLM again on the next run",
+        "tooltip.clear": "Clear",
+        "tooltip.clearLocked": "Unlock the result before clearing",
+        "tooltip.copy": "Copy",
+        "tooltip.collapse": "Collapse",
+        "alert.saveFailed": "Failed to save config: {error}",
+        "alert.deleteDefault": "Cannot delete the Default preset.",
+        "alert.deleteFailed": "Failed to delete config: {error}",
+        "alert.unknownError": "Unknown error",
+        "error.connecting": "Error connecting"
+    }
+}

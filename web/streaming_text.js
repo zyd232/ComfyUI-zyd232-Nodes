@@ -19,6 +19,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { createFloatingWindow, makeTitleButton } from "./floating_window.js";
+import { loadTranslations, $tSync } from "./i18n.js";
 
 // ============ Panel Geometry ============
 const PANEL_GAP = 12; // gap between the node's right edge and the panel
@@ -94,7 +95,7 @@ function lockResult(node) {
     setNodeLocked(node, true, st.content, st.reasoning);
     if (st.lockBtn) {
         st.lockBtn.textContent = "🔒";
-        st.lockBtn.title = "Click to unlock the result: allow the node to call the LLM again on the next run";
+        st.lockBtn.title = $tSync("tooltip.unlock");
     }
     if (st.updateClearButton) st.updateClearButton();
     renderText(node);
@@ -107,7 +108,7 @@ function unlockResult(node) {
     setNodeLocked(node, false, "", "");
     if (st.lockBtn) {
         st.lockBtn.textContent = "🔓";
-        st.lockBtn.title = "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
+        st.lockBtn.title = $tSync("tooltip.lock");
     }
     if (st.updateClearButton) st.updateClearButton();
     renderText(node);
@@ -128,7 +129,7 @@ function createPanel(node) {
         borderBottom: "1px solid #2a2a2a",
         flexShrink: "0",
     });
-    statusEl.textContent = "○ Idle";
+    statusEl.textContent = $tSync("status.idle");
 
     const textEl = document.createElement("div");
     Object.assign(textEl.style, {
@@ -202,7 +203,7 @@ function createPanel(node) {
     // Create the floating window. The shared helper wires up dragging, resizing,
     // collapsing, node-following, and workflow persistence.
     const win = createFloatingWindow(node, {
-        title: "Streaming Text",
+        title: $tSync("panel.title"),
         content: body,
         defaultSize: { w: DEFAULT_WIDTH, h: DEFAULT_HEIGHT },
         defaultOffset,
@@ -223,7 +224,7 @@ function createPanel(node) {
     const btnRow = win.btnRow;
     if (btnRow) {
         // Reasoning toggle button
-        const reasoningBtn = makeTitleButton(st.showReasoning ? "🧠" : "🚫", "Click to toggle reasoning", () => {
+        const reasoningBtn = makeTitleButton(st.showReasoning ? "🧠" : "🚫", $tSync("tooltip.toggleReasoning"), () => {
             st.showReasoning = !st.showReasoning;
             reasoningBtn.textContent = st.showReasoning ? "🧠" : "🚫";
             renderText(node);
@@ -234,7 +235,7 @@ function createPanel(node) {
         // content/reasoning into the hidden locked_* widgets so it is saved with
         // the workflow and the backend skips the LLM call on re-run. Unlocking
         // clears that state so the node re-runs the LLM.
-        const lockBtn = makeTitleButton("🔓", "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run", () => {
+        const lockBtn = makeTitleButton("🔓", $tSync("tooltip.lock"), () => {
             if (st.locked) {
                 unlockResult(node);
             } else {
@@ -244,7 +245,7 @@ function createPanel(node) {
 
         // Clear button. Disabled while the result is locked so the user cannot
         // accidentally wipe a locked result; they must unlock first.
-        const clearBtn = makeTitleButton("✕", "Clear", () => {
+        const clearBtn = makeTitleButton("✕", $tSync("tooltip.clear"), () => {
             st.content = "";
             st.reasoning = "";
             st.lastDone = false;
@@ -253,7 +254,7 @@ function createPanel(node) {
         });
 
         // Copy button
-        const copyBtn = makeTitleButton("⧉", "Copy", () => {
+        const copyBtn = makeTitleButton("⧉", $tSync("tooltip.copy"), () => {
             const text = (st.showReasoning && st.reasoning ? st.reasoning + "\n\n" : "") + st.content;
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(text).catch(() => {});
@@ -261,7 +262,7 @@ function createPanel(node) {
         });
 
         // Collapse button
-        const collapseBtn = makeTitleButton("▼", "Collapse", () => {
+        const collapseBtn = makeTitleButton("▼", $tSync("tooltip.collapse"), () => {
             win.toggleCollapsed();
             collapseBtn.textContent = win.isCollapsed() ? "▶" : "▼";
         });
@@ -271,7 +272,7 @@ function createPanel(node) {
             clearBtn.disabled = st.locked;
             clearBtn.style.opacity = st.locked ? "0.4" : "1";
             clearBtn.style.cursor = st.locked ? "not-allowed" : "pointer";
-            clearBtn.title = st.locked ? "Unlock the result before clearing" : "Clear";
+            clearBtn.title = st.locked ? $tSync("tooltip.clearLocked") : $tSync("tooltip.clear");
         };
 
         // Order: lock, reasoning, clear, copy, collapse — the lock button is the
@@ -311,9 +312,7 @@ function syncLockedState(node) {
         // The icon reflects the CURRENT lock state: 🔒 when locked, 🔓 when
         // unlocked.
         st.lockBtn.textContent = locked ? "🔒" : "🔓";
-        st.lockBtn.title = locked
-            ? "Click to unlock the result: allow the node to call the LLM again on the next run"
-            : "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
+        st.lockBtn.title = locked ? $tSync("tooltip.unlock") : $tSync("tooltip.lock");
     }
     if (st.updateClearButton) st.updateClearButton();
 
@@ -375,9 +374,7 @@ function applyLockedState(node, locked, text, reasoning) {
     st.streaming = false;
     if (st.lockBtn) {
         st.lockBtn.textContent = locked ? "🔒" : "🔓";
-        st.lockBtn.title = locked
-            ? "Click to unlock the result: allow the node to call the LLM again on the next run"
-            : "Click to lock the result: save the current output into the workflow and skip LLM generation on the next run";
+        st.lockBtn.title = locked ? $tSync("tooltip.unlock") : $tSync("tooltip.lock");
     }
     if (st.updateClearButton) st.updateClearButton();
     renderText(node);
@@ -401,14 +398,14 @@ function renderText(node) {
     if (!hasReasoning && !hasContent) {
         const placeholder = document.createElement("div");
         placeholder.style.color = "#666";
-        placeholder.textContent = "Waiting for output...";
+        placeholder.textContent = $tSync("status.waiting");
         st.textEl.appendChild(placeholder);
     } else {
         if (hasReasoning) {
             const header = document.createElement("div");
             header.style.color = "#7aa2f7";
             header.style.fontWeight = "bold";
-            header.textContent = "── Reasoning ──";
+            header.textContent = $tSync("header.reasoning");
             st.textEl.appendChild(header);
 
             const reasoning = document.createElement("div");
@@ -422,7 +419,7 @@ function renderText(node) {
             const header = document.createElement("div");
             header.style.color = "#7aa2f7";
             header.style.fontWeight = "bold";
-            header.textContent = "── Output ──";
+            header.textContent = $tSync("header.output");
             st.textEl.appendChild(header);
 
             const content = document.createElement("div");
@@ -439,8 +436,8 @@ function renderText(node) {
     // Update status
     if (st.statusEl) {
         st.statusEl.textContent = st.streaming
-            ? "● Streaming..."
-            : (st.lastDone ? "● Done" : "○ Idle");
+            ? $tSync("status.streaming")
+            : (st.lastDone ? $tSync("status.done") : $tSync("status.idle"));
         st.statusEl.style.color = st.streaming ? "#4caf50" : "#888";
     }
 }

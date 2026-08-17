@@ -1,0 +1,29 @@
+{
+    "ui": {
+        "model.placeholder": "从列表中选择模型",
+        "button.saveConfig": "💾 保存配置并隐藏 API",
+        "button.deleteConfig": "🗑 删除配置",
+        "button.refreshConfig": "🔄 刷新配置列表",
+        "button.refreshModel": "🔄 刷新模型列表",
+        "button.stopGeneration": "⏹ 停止生成",
+        "panel.title": "流式文本",
+        "status.idle": "○ 空闲",
+        "status.streaming": "● 生成中...",
+        "status.done": "● 完成",
+        "status.waiting": "等待输出...",
+        "header.reasoning": "── 思考 ──",
+        "header.output": "── 输出 ──",
+        "tooltip.toggleReasoning": "点击切换思考显示",
+        "tooltip.lock": "点击锁定结果：将当前输出保存到工作流，下次运行跳过 LLM 生成",
+        "tooltip.unlock": "点击解锁结果：允许节点在下次运行时再次调用 LLM",
+        "tooltip.clear": "清空",
+        "tooltip.clearLocked": "请先解锁结果再清空",
+        "tooltip.copy": "复制",
+        "tooltip.collapse": "折叠",
+        "alert.saveFailed": "保存配置失败：{error}",
+        "alert.deleteDefault": "无法删除默认预设。",
+        "alert.deleteFailed": "删除配置失败：{error}",
+        "alert.unknownError": "未知错误",
+        "error.connecting": "连接错误"
+    }
+}

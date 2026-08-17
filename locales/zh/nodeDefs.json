@@ -1,0 +1,72 @@
+{
+    "zyd232 LLMGenerator": {
+        "display_name": "LLM 文本生成器",
+        "description": "从任意兼容 OpenAI 的服务器生成文本。支持多张参考图片、视频和音频。",
+        "inputs": {
+            "config_select": { "name": "配置预设", "tooltip": "选择已保存的服务器预设" },
+            "config_name": { "name": "配置名称", "tooltip": "此预设的名称；非法字符会被自动移除" },
+            "base_url": { "name": "服务器地址", "tooltip": "AI 服务地址，例如 Ollama 或 vLLM 端点" },
+            "api_key": { "name": "API 密钥", "tooltip": "API 密钥，或使用 ENV:变量名 从环境变量读取" },
+            "model_select": { "name": "模型选择", "tooltip": "下拉选择视觉模型。选择后将填入下方的 'model' 字段。" },
+            "model": { "name": "模型", "tooltip": "视觉模型名称（自由输入）。可手动输入或从上方下拉框选择。" },
+            "model_NoVision_select": { "name": "纯文本模型选择", "tooltip": "下拉选择纯文本模型。选择后将填入下方的 'model_NoVision' 字段。" },
+            "model_NoVision": { "name": "纯文本模型", "tooltip": "纯文本模型名称（自由输入）。未提供图片/视频/音频时使用。" },
+            "system_prompt": { "name": "系统提示词", "tooltip": "定义 AI 角色和行为的系统提示词" },
+            "user_prompt": { "name": "用户提示词", "tooltip": "你对 AI 的问题或指令" },
+            "temperature": { "name": "温度", "tooltip": "随机性：越高越有创意，越低越稳定" },
+            "top_k": { "name": "Top K", "tooltip": "从前 K 个候选中选取下一个词" },
+            "seed": { "name": "随机种子", "tooltip": "用于可复现的随机种子，-1 表示随机" },
+            "context_length": { "name": "上下文长度", "tooltip": "上下文窗口大小。设为 -1 或 0 可省略 num_ctx/n_ctx，让服务器使用默认上下文长度" },
+            "timeout": { "name": "超时时间", "tooltip": "LLM 生成请求的超时时间（秒）" },
+            "thinking": { "name": "思考模式", "tooltip": "将 AI 的思考过程与最终答案分离" },
+            "think_start_tag": { "name": "思考开始标签", "tooltip": "标记思考内容开始的起始标签" },
+            "think_end_tag": { "name": "思考结束标签", "tooltip": "标记思考内容结束的结束标签" },
+            "clean_comfy_vram_before_gen": { "name": "生成前清理显存", "tooltip": "生成前清理 ComfyUI 显存以避免 OOM" },
+            "unload_after_gen": { "name": "生成后卸载模型", "tooltip": "生成后卸载模型以释放显存" },
+            "unload_endpoint": { "name": "卸载端点", "tooltip": "用于卸载模型的 API 端点路径" },
+            "llama_cpp_unload": { "name": "llama.cpp 卸载", "tooltip": "通过 llama.cpp 专用端点卸载模型" },
+            "llama_endpoint": { "name": "llama.cpp 端点", "tooltip": "llama.cpp 卸载 API 端点路径" },
+            "cache_prompt": { "name": "缓存提示词", "tooltip": "缓存提示词以加速重复请求" },
+            "auto_lock": { "name": "自动锁定结果", "tooltip": "启用后，生成完成后流式文本面板会自动锁定结果" },
+            "video_fps": { "name": "视频采样密度", "tooltip": "每个参考视频的采样密度。假设源视频为 24fps：每 24 个源帧保留 video_fps 帧（n = total * video_fps/24），然后受 max_video_frames 限制。默认 1.0。" },
+            "max_video_frames": { "name": "最大视频帧数", "tooltip": "每个视频发送的最大帧数（避免超出上下文长度）。设为 -1 或 0 可禁用上限并发送所有帧。" },
+            "enable_audio": { "name": "启用音频", "tooltip": "编码并发送音频参考到 API（仅当模型支持音频时）" },
+            "use_locked": { "name": "使用锁定结果", "tooltip": "为真时跳过 LLM 生成并返回锁定结果" },
+            "locked_text": { "name": "锁定文本", "tooltip": "use_locked 为真时返回的锁定最终文本" },
+            "locked_reasoning": { "name": "锁定思考", "tooltip": "use_locked 为真时返回的锁定思考文本" }
+        }
+    },
+    "zyd232 ImagesPixelsCompare": {
+        "display_name": "图片像素对比",
+        "description": "在像素级别比较两张图片是否完全相同。",
+        "inputs": {
+            "image1": { "name": "图片 1", "tooltip": "第一张要比较的图片" },
+            "image2": { "name": "图片 2", "tooltip": "第二张要比较的图片" },
+            "if_same_output": { "name": "相同则输出", "tooltip": "为真时，图片相同返回 True；为假时，图片相同返回 False" }
+        }
+    },
+    "zyd232 MaskBatchBlend": {
+        "display_name": "Mask 批量混合",
+        "description": "将多个 Mask 合并（叠加效果）为一个 Mask。",
+        "inputs": {
+            "masks": { "name": "掩码", "tooltip": "要合并的 Mask 批次" },
+            "operation": { "name": "操作", "tooltip": "合并方式：add 叠加、max 取最大值、average 取平均值" }
+        }
+    },
+    "zyd232_SavePreviewImages": {
+        "display_name": "保存预览图片",
+        "description": "保存图片到输出目录，并可选生成预览图与工作流 JSON。",
+        "inputs": {
+            "images": { "name": "图片", "tooltip": "要保存的图片批次" },
+            "save_image": { "name": "保存图片", "tooltip": "是否将图片保存到磁盘" },
+            "save_workflow_as_json": { "name": "保存工作流为 JSON", "tooltip": "是否将工作流保存为 JSON 文件" },
+            "preview": { "name": "预览", "tooltip": "是否生成预览图" },
+            "format": { "name": "格式", "tooltip": "保存的图片格式" },
+            "quality": { "name": "质量", "tooltip": "图片质量（jpg 有效）" },
+            "meta_data_png": { "name": "写入 PNG 元数据", "tooltip": "是否将提示词等信息写入 PNG 元数据" },
+            "custom_path": { "name": "自定义路径", "tooltip": "自定义保存路径，支持 %date 和 %time 占位符" },
+            "filename_prefix": { "name": "文件名前缀", "tooltip": "文件名前缀，支持 %date 和 %time 占位符" },
+            "timestamp": { "name": "时间戳", "tooltip": "文件名时间戳格式" }
+        }
+    }
+}

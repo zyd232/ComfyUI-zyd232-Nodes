@@ -2,8 +2,9 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { createFullWidthButton, createMultiButtonRow } from "./button_utils.js";
 import { setupStreamingPanel } from "./streaming_text.js";
+import { loadTranslations, $tSync } from "./i18n.js";
 
-const MODEL_PLACEHOLDER = "Choose a model from the list";
+let MODEL_PLACEHOLDER = "Choose a model from the list";
 const API_KEY_MASKED = "********";
 const CONFIG_DEFAULT = "Default";
 
@@ -71,6 +72,10 @@ app.registerExtension({
     name: "zyd232.LLMModelFetcher",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "zyd232 LLMGenerator") return;
+
+        // Preload translations so onNodeCreated can use $tSync() synchronously.
+        await loadTranslations();
+        MODEL_PLACEHOLDER = $tSync("model.placeholder");
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -253,7 +258,7 @@ app.registerExtension({
                     if (node.setSize) node.setSize(node.size);
                     console.log("[zyd232 LLM] Config saved successfully:", sanitized);
                 } else {
-                    alert(`Failed to save config: ${result?.error || "Unknown error"}`);
+                    alert($tSync("alert.saveFailed").replace("{error}", result?.error || $tSync("alert.unknownError")));
                 }
             }
 
@@ -262,7 +267,7 @@ app.registerExtension({
                 const target = configSelectWidget.value || configNameWidget.value || CONFIG_DEFAULT;
                 const sanitized = sanitizeConfigName(target);
                 if (sanitized === CONFIG_DEFAULT) {
-                    alert("Cannot delete the Default preset.");
+                    alert($tSync("alert.deleteDefault"));
                     return;
                 }
                 const ok = confirm(`Delete preset "${sanitized}"? This action cannot be undone.`);
@@ -277,17 +282,18 @@ app.registerExtension({
                     if (node.setSize) node.setSize(node.size);
                     console.log("[zyd232 LLM] Config deleted successfully:", sanitized);
                 } else {
-                    alert(`Failed to delete config: ${result?.error || "Unknown error"}`);
+                    alert($tSync("alert.deleteFailed").replace("{error}", result?.error || $tSync("alert.unknownError")));
                 }
             }
 
             // ---- Button labels (used both for display and to locate the widgets
-            // that addWidget appended to node.widgets) ----
-            const BTN_SAVE = "\u{1F4BE} Save Config & Hide API";
-            const BTN_DELETE = "\u{1F5D1} Delete Config";
-            const BTN_REFRESH_CONFIG = "\u{1F504} Refresh Config List";
-            const BTN_REFRESH_MODEL = "\u{1F504} Refresh Model List";
-            const BTN_STOP = "\u{23F9} Stop Generation";
+            // that addWidget appended to node.widgets). Text comes from the
+            // locales/<lang>/main.json i18n files, not hardcoded here. ----
+            const BTN_SAVE = $tSync("button.saveConfig");
+            const BTN_DELETE = $tSync("button.deleteConfig");
+            const BTN_REFRESH_CONFIG = $tSync("button.refreshConfig");
+            const BTN_REFRESH_MODEL = $tSync("button.refreshModel");
+            const BTN_STOP = $tSync("button.stopGeneration");
 
             // Move a widget (found by its name/label) to be right after another widget.
             // addWidget appends buttons to node.widgets, so we relocate the existing
@@ -450,8 +456,8 @@ app.registerExtension({
                     }
                 } catch (error) {
                     console.error("[zyd232 LLM JS] Error fetching models:", error);
-                    if (modelWidget) modelWidget.value = "Error connecting";
-                    if (modelNoVisionWidget) modelNoVisionWidget.value = "Error connecting";
+                    if (modelWidget) modelWidget.value = $tSync("error.connecting");
+                    if (modelNoVisionWidget) modelNoVisionWidget.value = $tSync("error.connecting");
                 }
             }
 

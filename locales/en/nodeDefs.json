@@ -1,0 +1,72 @@
+{
+    "zyd232 LLMGenerator": {
+        "display_name": "LLM Text Generator",
+        "description": "Generate text from any OpenAI-compatible server. Supports multiple reference images, videos and audio.",
+        "inputs": {
+            "config_select": { "name": "Config Preset", "tooltip": "Choose a saved server preset" },
+            "config_name": { "name": "Config Name", "tooltip": "Name for this preset; illegal characters are removed automatically" },
+            "base_url": { "name": "Base URL", "tooltip": "AI service URL, e.g. Ollama or vLLM endpoint" },
+            "api_key": { "name": "API Key", "tooltip": "API key, or ENV:var_name to read from environment" },
+            "model_select": { "name": "Model Select", "tooltip": "Dropdown to select a vision model. Selection will fill the 'model' field below." },
+            "model": { "name": "Model", "tooltip": "Vision model name (free input). Can be typed manually or selected from the dropdown above." },
+            "model_NoVision_select": { "name": "Text-Only Model Select", "tooltip": "Dropdown to select a text-only model. Selection will fill the 'model_NoVision' field below." },
+            "model_NoVision": { "name": "Text-Only Model", "tooltip": "Text-only model name (free input). Used when no image/video/audio is provided." },
+            "system_prompt": { "name": "System Prompt", "tooltip": "System prompt that defines the AI's role and behavior" },
+            "user_prompt": { "name": "User Prompt", "tooltip": "Your question or instruction for the AI" },
+            "temperature": { "name": "Temperature", "tooltip": "Randomness: higher is more creative, lower is more stable" },
+            "top_k": { "name": "Top K", "tooltip": "Pick next word from top K candidates" },
+            "seed": { "name": "Seed", "tooltip": "Random seed for reproducibility, -1 for random" },
+            "context_length": { "name": "Context Length", "tooltip": "Context window size. Set to -1 or 0 to omit num_ctx/n_ctx and let the server use its default context length" },
+            "timeout": { "name": "Timeout", "tooltip": "Timeout in seconds for the LLM generation request" },
+            "thinking": { "name": "Thinking", "tooltip": "Separate AI's thinking process from final answer" },
+            "think_start_tag": { "name": "Think Start Tag", "tooltip": "Opening tag to mark the start of thinking content" },
+            "think_end_tag": { "name": "Think End Tag", "tooltip": "Closing tag to mark the end of thinking content" },
+            "clean_comfy_vram_before_gen": { "name": "Clean VRAM Before Gen", "tooltip": "Clear ComfyUI VRAM before generation to avoid OOM" },
+            "unload_after_gen": { "name": "Unload After Gen", "tooltip": "Unload model after generation to free VRAM" },
+            "unload_endpoint": { "name": "Unload Endpoint", "tooltip": "API endpoint path for unloading the model" },
+            "llama_cpp_unload": { "name": "llama.cpp Unload", "tooltip": "Unload model via llama.cpp-specific endpoint" },
+            "llama_endpoint": { "name": "llama.cpp Endpoint", "tooltip": "llama.cpp unload API endpoint path" },
+            "cache_prompt": { "name": "Cache Prompt", "tooltip": "Cache prompts to speed up repeated requests" },
+            "auto_lock": { "name": "Auto Lock", "tooltip": "When enabled, the Streaming Text panel automatically locks the result once generation completes" },
+            "video_fps": { "name": "Video FPS", "tooltip": "Sampling density per reference video. Assumes the source video is 24fps: keeps video_fps frames per 24 source frames (n = total * video_fps/24), then capped by max_video_frames. Default 1.0." },
+            "max_video_frames": { "name": "Max Video Frames", "tooltip": "Maximum number of frames sent per video (to avoid exceeding context length). Set to -1 or 0 to disable the cap and send all frames." },
+            "enable_audio": { "name": "Enable Audio", "tooltip": "Encode and send audio references to the API (only if the model supports audio)" },
+            "use_locked": { "name": "Use Locked", "tooltip": "When true, skip LLM generation and return the locked result" },
+            "locked_text": { "name": "Locked Text", "tooltip": "Locked final text returned when use_locked is true" },
+            "locked_reasoning": { "name": "Locked Reasoning", "tooltip": "Locked reasoning text returned when use_locked is true" }
+        }
+    },
+    "zyd232 ImagesPixelsCompare": {
+        "display_name": "Images Pixels Compare",
+        "description": "Compare two images at the pixel level to check whether they are exactly the same.",
+        "inputs": {
+            "image1": { "name": "Image 1", "tooltip": "First image to compare" },
+            "image2": { "name": "Image 2", "tooltip": "Second image to compare" },
+            "if_same_output": { "name": "If Same Output", "tooltip": "When true, outputs true if the images are identical; when false, inverts the logic" }
+        }
+    },
+    "zyd232 MaskBatchBlend": {
+        "display_name": "Mask Batch Blend",
+        "description": "Blend multiple masks together into a single mask.",
+        "inputs": {
+            "masks": { "name": "Masks", "tooltip": "Masks to blend (supports batches)" },
+            "operation": { "name": "Operation", "tooltip": "Blend operation: add, max, or average" }
+        }
+    },
+    "zyd232_SavePreviewImages": {
+        "display_name": "Save Preview Images",
+        "description": "Save images to the output directory, optionally generating previews and workflow JSON.",
+        "inputs": {
+            "images": { "name": "Images", "tooltip": "Images to save" },
+            "save_image": { "name": "Save Image", "tooltip": "Whether to save the images to disk" },
+            "save_workflow_as_json": { "name": "Save Workflow as JSON", "tooltip": "Whether to save the workflow as a JSON file" },
+            "preview": { "name": "Preview", "tooltip": "Whether to generate preview images" },
+            "format": { "name": "Format", "tooltip": "Output image format" },
+            "quality": { "name": "Quality", "tooltip": "Image quality (jpg only)" },
+            "meta_data_png": { "name": "Write PNG Metadata", "tooltip": "Whether to write prompt info into PNG metadata" },
+            "custom_path": { "name": "Custom Path", "tooltip": "Custom save path, supports %date and %time placeholders" },
+            "filename_prefix": { "name": "Filename Prefix", "tooltip": "Filename prefix, supports %date and %time placeholders" },
+            "timestamp": { "name": "Timestamp", "tooltip": "Filename timestamp mode" }
+        }
+    }
+}

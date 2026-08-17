@@ -20,18 +20,18 @@
 
 ## 输入
 
-| 输入 | 类型 | 说明 |
-|------|------|------|
-| **images** | `IMAGE` | 待保存的图片 |
-| **save_image** | `BOOLEAN` | 是否执行保存操作（默认 `true`） |
-| **save_workflow_as_json** | `BOOLEAN` | 是否将工作流保存为 JSON（默认 `false`） |
-| **preview** | `BOOLEAN` | 是否生成预览图片（默认 `true`） |
-| **format** | `["png", "jpg"]` | 输出图片格式 |
-| **quality** | `INT` | 图片质量（默认 `85`，范围 0–100） |
-| **meta_data_png** | `BOOLEAN` | 是否在 PNG 中写入元数据（默认 `true`） |
-| **custom_path** | `STRING` | 自定义保存路径（默认空） |
-| **filename_prefix** | `STRING` | 文件名前缀（默认 `ComfyUI_`） |
-| **timestamp** | `["second", "millisecond", "None"]` | 文件名时间戳模式 |
+| 字段（英文） | 字段（中文） | 类型 | 说明 |
+|------|------|------|------|
+| **images** | 图片 | `IMAGE` | 待保存的图片 |
+| **save_image** | 保存图片 | `BOOLEAN` | 是否执行保存操作（默认 `true`） |
+| **save_workflow_as_json** | 保存工作流为 JSON | `BOOLEAN` | 是否将工作流保存为 JSON（默认 `false`） |
+| **preview** | 预览 | `BOOLEAN` | 是否生成预览图片（默认 `true`） |
+| **format** | 格式 | `["png", "jpg"]` | 输出图片格式 |
+| **quality** | 质量 | `INT` | 图片质量（默认 `85`，范围 0–100） |
+| **meta_data_png** | 写入 PNG 元数据 | `BOOLEAN` | 是否在 PNG 中写入元数据（默认 `true`） |
+| **custom_path** | 自定义路径 | `STRING` | 自定义保存路径（默认空） |
+| **filename_prefix** | 文件名前缀 | `STRING` | 文件名前缀（默认 `ComfyUI_`） |
+| **timestamp** | 时间戳 | `["second", "millisecond", "None"]` | 文件名时间戳模式 |
 
 ---
 

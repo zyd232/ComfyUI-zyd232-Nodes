@@ -1,32 +1,46 @@
 import importlib.util
 import os
 
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
-
-def get_ext_dir(subpath=None, mkdir=False):
-    dir = os.path.dirname(__file__)
-    if subpath is not None:
-        dir = os.path.join(dir, subpath)
-    dir = os.path.abspath(dir)
-    if mkdir and not os.path.exists(dir):
-        os.makedirs(dir)
-    return dir
+from comfy_api.latest import ComfyExtension, io
 
 # 让 ComfyUI 自动加载此插件根目录下的 web 文件夹
 WEB_DIRECTORY = "./web"
 
-nodes = get_ext_dir("nodes")
-files = os.listdir(nodes)
-for file in files:
-    if not file.endswith(".py"):
-        continue
-    name = os.path.splitext(file)[0]
-    try:
-        imported_module = importlib.import_module(".nodes.{}".format(name), __name__)
-        NODE_CLASS_MAPPINGS = {**NODE_CLASS_MAPPINGS, **imported_module.NODE_CLASS_MAPPINGS}
-        NODE_DISPLAY_NAME_MAPPINGS = {**NODE_DISPLAY_NAME_MAPPINGS, **imported_module.NODE_DISPLAY_NAME_MAPPINGS}
-    except:
-        pass
+_NODES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nodes")
 
-__all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', 'WEB_DIRECTORY']
+
+def _load_node_module(filename: str):
+    """从 nodes/ 目录按文件路径加载节点模块（nodes 目录不是包）。"""
+    module_path = os.path.join(_NODES_DIR, filename)
+    module_name = "zyd232_nodes_" + os.path.splitext(filename)[0]
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_llm_module = _load_node_module("LLMGeneratorV3.py")
+_images_module = _load_node_module("ImagesPixelsCompare.py")
+_mask_module = _load_node_module("MaskBatchBlend.py")
+_save_module = _load_node_module("SavePreviewImages.py")
+
+zyd232_LLMGeneratorV3 = _llm_module.zyd232_LLMGeneratorV3
+zyd232_ImagesPixelsCompare = _images_module.zyd232_ImagesPixelsCompare
+zyd232_MaskBatchBlend = _mask_module.zyd232_MaskBatchBlend
+zyd232_SavePreviewImages = _save_module.zyd232_SavePreviewImages
+
+
+class Zyd232Extension(ComfyExtension):
+    """zyd232 Nodes 的 V3 扩展入口，注册所有节点。"""
+
+    async def get_node_list(self) -> list[type[io.ComfyNode]]:
+        return [
+            zyd232_LLMGeneratorV3,
+            zyd232_ImagesPixelsCompare,
+            zyd232_MaskBatchBlend,
+            zyd232_SavePreviewImages,
+        ]
+
+
+async def comfy_entrypoint() -> Zyd232Extension:
+    return Zyd232Extension()

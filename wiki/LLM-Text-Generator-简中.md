@@ -77,12 +77,12 @@
 
 节点通过自动增长（Autogrow）输入支持多张参考图片、视频和音频：
 
-| 输入 | 说明 | 数量上限 |
-|------|------|---------|
-| **images** | 参考图片（`image_0`、`image_1` …），转换为 base64 PNG 发送 | 0–32 |
-| **videos** | 参考视频（`video_0` …）；采样帧作为图片发送 | 0–32 |
-| **video_audios** | 与同编号参考视频对应的音轨（`video_audio_0` …） | 0–32 |
-| **audios** | 独立参考音频（`audio_0` …） | 0–32 |
+| 输入（英文） | 输入（中文） | 说明 | 数量上限 |
+|------|------|------|---------|
+| **images** | 参考图片 | 参考图片（`image_0`、`image_1` …），转换为 base64 PNG 发送 | 0–32 |
+| **videos** | 参考视频 | 参考视频（`video_0` …）；采样帧作为图片发送 | 0–32 |
+| **video_audios** | 视频音频 | 与同编号参考视频对应的音轨（`video_audio_0` …） | 0–32 |
+| **audios** | 参考音频 | 独立参考音频（`audio_0` …） | 0–32 |
 
 > 输入遵循与 MiniMax H3 Reference to Video 相同的模式：连接 `image_0` 会显示 `image_1`，以此类推。
 
@@ -189,23 +189,23 @@
 
 ## 其他参数速查
 
-| 参数 | 作用 | 何时启用 |
-|------|------|---------|
-| **cache_prompt** | 让服务器缓存提示词以加快重复响应 | 服务器支持缓存（如 vLLM） |
-| **auto_lock** | 生成成功完成后自动锁定结果 | 希望无需手动点击 🔒 即可持久化输出 |
-| **clean_comfy_vram_before_gen** | 发送 LLM 请求前释放 ComfyUI GPU 内存 | 显存有限 |
-| **unload_after_gen** | 生成后向服务器发送卸载命令 | 使用 vLLM、Ollama、LocalAI 等 |
-| **unload_endpoint** | 通用卸载请求使用的 API 端点路径 | 自定义服务器卸载路径 |
-| **llama_cpp_unload** | 通过 llama.cpp 专用端点卸载 | 使用 llama.cpp 服务器 |
-| **llama_endpoint** | llama.cpp 卸载 API 端点路径 | 使用 llama.cpp 服务器 |
-| **context_length** | 上下文窗口大小（`num_ctx` / `n_ctx`）；`-1`/`0` 使用服务器默认值 | 控制内存占用 / 上下文大小 |
-| **video_fps** | 每个参考视频的采样密度；假设原视频为 24fps，每 24 个源帧保留 `video_fps` 帧（`n = total * video_fps/24`），受 `max_video_frames` 上限约束 | 使用视频输入 |
-| **max_video_frames** | 每个视频发送的最大帧数（避免超出上下文长度）；`-1`/`0` 表示不设置上限，发送所有采样帧 | 使用视频输入 |
-| **enable_audio** | 编码并发送音频参考到 API | 模型支持音频输入 |
-| **temperature** | 随机性：越高越有创意，越低越稳定（默认 `0.7`） | 控制输出风格 |
-| **top_k** | 从 top K 候选中选择下一个词（默认 `40`） | 控制多样性 |
-| **seed** | 随机种子，用于可复现性；`-1` 为随机（默认 `-1`） | 需要可复现输出 |
-| **timeout** | LLM 生成请求的超时秒数（默认 `180`） | 长任务 |
+| 参数（英文） | 参数（中文） | 作用 | 何时启用 |
+|------|------|------|---------|
+| **cache_prompt** | 缓存提示词 | 让服务器缓存提示词以加快重复响应 | 服务器支持缓存（如 vLLM） |
+| **auto_lock** | 自动锁定结果 | 生成成功完成后自动锁定结果 | 希望无需手动点击 🔒 即可持久化输出 |
+| **clean_comfy_vram_before_gen** | 生成前清理显存 | 发送 LLM 请求前释放 ComfyUI GPU 内存 | 显存有限 |
+| **unload_after_gen** | 生成后卸载模型 | 生成后向服务器发送卸载命令 | 使用 vLLM、Ollama、LocalAI 等 |
+| **unload_endpoint** | 卸载端点 | 通用卸载请求使用的 API 端点路径 | 自定义服务器卸载路径 |
+| **llama_cpp_unload** | llama.cpp 卸载 | 通过 llama.cpp 专用端点卸载 | 使用 llama.cpp 服务器 |
+| **llama_endpoint** | llama.cpp 端点 | llama.cpp 卸载 API 端点路径 | 使用 llama.cpp 服务器 |
+| **context_length** | 上下文长度 | 上下文窗口大小（`num_ctx` / `n_ctx`）；`-1`/`0` 使用服务器默认值 | 控制内存占用 / 上下文大小 |
+| **video_fps** | 视频采样密度 | 每个参考视频的采样密度；假设原视频为 24fps，每 24 个源帧保留 `video_fps` 帧（`n = total * video_fps/24`），受 `max_video_frames` 上限约束 | 使用视频输入 |
+| **max_video_frames** | 最大视频帧数 | 每个视频发送的最大帧数（避免超出上下文长度）；`-1`/`0` 表示不设置上限，发送所有采样帧 | 使用视频输入 |
+| **enable_audio** | 启用音频 | 编码并发送音频参考到 API | 模型支持音频输入 |
+| **temperature** | 温度 | 随机性：越高越有创意，越低越稳定（默认 `0.7`） | 控制输出风格 |
+| **top_k** | Top K | 从 top K 候选中选择下一个词（默认 `40`） | 控制多样性 |
+| **seed** | 随机种子 | 随机种子，用于可复现性；`-1` 为随机（默认 `-1`） | 需要可复现输出 |
+| **timeout** | 超时时间 | LLM 生成请求的超时秒数（默认 `180`） | 长任务 |
 
 ---
 

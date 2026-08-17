@@ -1,24 +1,31 @@
 import torch
+from comfy_api.latest import io
 
-class zyd232_MaskBatchBlend:
-    # Mask混合节点：将多个Mask合并（叠加效果）为一个Mask
-    
+
+class zyd232_MaskBatchBlend(io.ComfyNode):
+    """Mask混合节点：将多个Mask合并（叠加效果）为一个Mask"""
+
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "masks": ("MASK",),
-                "operation": (["add", "max", "average"],),
-            },
-        }
+    def define_schema(cls):
+        return io.Schema(
+            node_id="zyd232 MaskBatchBlend",
+            display_name="Mask Batch Blend",
+            category="zyd232 Nodes",
+            description="Blend multiple masks together into a single mask.",
+            inputs=[
+                io.Mask.Input("masks", display_name="Masks",
+                    tooltip="Masks to blend (supports batches)"),
+                io.Combo.Input("operation", options=["add", "max", "average"],
+                    display_name="Operation",
+                    tooltip="Blend operation: add, max, or average"),
+            ],
+            outputs=[
+                io.Mask.Output(display_name="Result"),
+            ],
+        )
 
-    RETURN_TYPES = ("MASK",)
-    FUNCTION = "blend_masks"
-    CATEGORY = "zyd232 Nodes"
-    NAME = "Mask Batch Blend"
-
-    def blend_masks(self, masks, operation):
-        
+    @classmethod
+    def execute(cls, masks, operation) -> io.NodeOutput:
         if masks.dim() == 2:
             # 如果是2D张量，添加batch维度
             masks = masks.unsqueeze(0)
@@ -28,15 +35,15 @@ class zyd232_MaskBatchBlend:
                 masks = masks.squeeze(1)
             else:
                 raise ValueError(f"Unexpected mask shape: {masks.shape}. Expected (batch, height, width) or (batch, 1, height, width)")
-        
+
         batch_size = masks.shape[0]
-        
+
         if batch_size == 0:
             # 如果没有mask，返回全零mask
             height, width = masks.shape[1], masks.shape[2]
             result = torch.zeros((1, height, width), dtype=torch.float32)
-            return (result,)
-        
+            return io.NodeOutput(result)
+
         if batch_size == 1:
             # 如果只有一个mask，直接返回
             result = masks
@@ -53,13 +60,5 @@ class zyd232_MaskBatchBlend:
                 result = torch.mean(masks, dim=0, keepdim=True)
             else:
                 raise ValueError(f"Unknown operation: {operation}")
-        
-        return (result,)
 
-NODE_CLASS_MAPPINGS = {
-    "zyd232 MaskBatchBlend": zyd232_MaskBatchBlend
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "zyd232 MaskBatchBlend": "Mask Batch Blend"
-}
+        return io.NodeOutput(result)

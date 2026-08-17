@@ -511,9 +511,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             display_name="LLM Text Generator",
             category="zyd232 Nodes/LLM",
             description=(
-                "Generate text from any OpenAI-compatible server. Supports multiple "
-                "reference images, videos and audio. Connect image_0 to reveal image_1, "
-                "and so on (same pattern as MiniMax H3 Reference to Video)."
+                "Generate text from any OpenAI-compatible server. Supports multiple reference images, videos and audio."
             ),
             # Request the executing prompt and extra_pnginfo so auto_lock can persist
             # the locked result into both the backend prompt and the frontend canvas
@@ -522,77 +520,105 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             inputs=[
                 # --- Configuration management widgets --- #
                 io.Combo.Input("config_select", options=list_config_files() or ["Default"],
+                    display_name="Config Preset",
                     tooltip="Choose a saved server preset"),
                 io.String.Input("config_name", default="Default",
+                    display_name="Config Name",
                     tooltip="Name for this preset; illegal characters are removed automatically"),
 
                 # --- Connection settings --- #
                 io.String.Input("base_url", default="http://127.0.0.1:8080",
+                    display_name="Base URL",
                     tooltip="AI service URL, e.g. Ollama or vLLM endpoint"),
                 io.String.Input("api_key", default="sk-no-key-required",
+                    display_name="API Key",
                     tooltip="API key, or ENV:var_name to read from environment"),
 
                 # --- Model selection (COMBO selector first, then STRING free input) --- #
                 io.Combo.Input("model_select", options=[cls._CHOICE_PLACEHOLDER],
+                    display_name="Model Select",
                     tooltip="Dropdown to select a vision model. Selection will fill the 'model' field below."),
                 io.String.Input("model", default="",
+                    display_name="Model",
                     tooltip="Vision model name (free input). Can be typed manually or selected from the dropdown above."),
                 io.Combo.Input("model_NoVision_select", options=[cls._CHOICE_PLACEHOLDER],
+                    display_name="Text-Only Model Select",
                     tooltip="Dropdown to select a text-only model. Selection will fill the 'model_NoVision' field below."),
                 io.String.Input("model_NoVision", default="",
+                    display_name="Text-Only Model",
                     tooltip="Text-only model name (free input). Used when no image/video/audio is provided."),
 
                 # --- Prompts --- #
                 io.String.Input("system_prompt", multiline=True, default="You are a helpful AI assistant.",
+                    display_name="System Prompt",
                     tooltip="System prompt that defines the AI's role and behavior"),
                 io.String.Input("user_prompt", multiline=True, default="Describe this image or answer my question.",
+                    display_name="User Prompt",
                     tooltip="Your question or instruction for the AI"),
 
                 # --- Sampling parameters --- #
                 io.Float.Input("temperature", default=0.7, min=0.0, max=2.0, step=0.05,
+                    display_name="Temperature",
                     tooltip="Randomness: higher is more creative, lower is more stable"),
                 io.Int.Input("top_k", default=40, min=1, max=100,
+                    display_name="Top K",
                     tooltip="Pick next word from top K candidates"),
                 io.Int.Input("seed", default=-1, min=-1, max=0xffffffffffffffff,
+                    display_name="Seed",
                     tooltip="Random seed for reproducibility, -1 for random"),
                 io.Int.Input("context_length", default=2048, min=-1, max=128000, step=256,
+                    display_name="Context Length",
                     tooltip="Context window size. Set to -1 or 0 to omit num_ctx/n_ctx and let the server use its default context length"),
                 io.Int.Input("timeout", default=180, min=1, max=3600, step=1,
+                    display_name="Timeout",
                     tooltip="Timeout in seconds for the LLM generation request"),
 
                 # --- Extended features (static, fixed array indices) --- #
                 io.Boolean.Input("thinking", default=False, label_on="Enable", label_off="Disable",
+                    display_name="Thinking",
                     tooltip="Separate AI's thinking process from final answer"),
                 io.String.Input("think_start_tag", default="<think>",
+                    display_name="Think Start Tag",
                     tooltip="Opening tag to mark the start of thinking content"),
                 io.String.Input("think_end_tag", default="</think>",
+                    display_name="Think End Tag",
                     tooltip="Closing tag to mark the end of thinking content"),
 
                 io.Boolean.Input("clean_comfy_vram_before_gen", default=False, label_on="Enable", label_off="Disable",
+                    display_name="Clean VRAM Before Gen",
                     tooltip="Clear ComfyUI VRAM before generation to avoid OOM"),
 
                 io.Boolean.Input("unload_after_gen", default=False, label_on="Enable", label_off="Disable",
+                    display_name="Unload After Gen",
                     tooltip="Unload model after generation to free VRAM"),
                 io.String.Input("unload_endpoint", default="/v1/models/unload",
+                    display_name="Unload Endpoint",
                     tooltip="API endpoint path for unloading the model"),
 
                 io.Boolean.Input("llama_cpp_unload", default=False, label_on="Enable", label_off="Disable",
+                    display_name="llama.cpp Unload",
                     tooltip="Unload model via llama.cpp-specific endpoint"),
                 io.String.Input("llama_endpoint", default="/models/unload",
+                    display_name="llama.cpp Endpoint",
                     tooltip="llama.cpp unload API endpoint path"),
 
                 io.Boolean.Input("cache_prompt", default=True, label_on="Enable", label_off="Disable",
+                    display_name="Cache Prompt",
                     tooltip="Cache prompts to speed up repeated requests"),
 
                 io.Boolean.Input("auto_lock", default=False, label_on="Enable", label_off="Disable",
+                    display_name="Auto Lock",
                     tooltip="When enabled, the Streaming Text panel automatically locks the result once generation completes"),
 
                 # --- Multimodal sampling controls --- #
                 io.Float.Input("video_fps", default=1.0, min=0.1, max=30.0, step=0.1,
+                    display_name="Video FPS",
                     tooltip="Sampling density per reference video. Assumes the source video is 24fps: keeps video_fps frames per 24 source frames (n = total * video_fps/24), then capped by max_video_frames. Default 1.0."),
                 io.Int.Input("max_video_frames", default=-1, min=-1,
+                    display_name="Max Video Frames",
                     tooltip="Maximum number of frames sent per video (to avoid exceeding context length). Set to -1 or 0 to disable the cap and send all frames."),
                 io.Boolean.Input("enable_audio", default=False, label_on="Enable", label_off="Disable",
+                    display_name="Enable Audio",
                     tooltip="Encode and send audio references to the API (only if the model supports audio)"),
 
                 # --- Locked-result persistence (hidden widgets) --- #
@@ -603,28 +629,31 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 # LLM call and returns the locked text/reasoning directly, so re-running
                 # the workflow (or sharing it) does not require calling the LLM again.
                 io.Boolean.Input("use_locked", default=False,
+                    display_name="Use Locked",
                     tooltip="When true, skip LLM generation and return the locked result"),
                 io.String.Input("locked_text", default="",
+                    display_name="Locked Text",
                     tooltip="Locked final text returned when use_locked is true"),
                 io.String.Input("locked_reasoning", default="",
+                    display_name="Locked Reasoning",
                     tooltip="Locked reasoning text returned when use_locked is true"),
 
                 # --- Dynamic multimodal inputs (Autogrow) --- #
                 io.Autogrow.Input("images", optional=True,
                     template=io.Autogrow.TemplatePrefix(
-                        input=io.Image.Input("image", tooltip="Reference image for vision model analysis"),
+                        input=io.Image.Input("image", display_name="Reference Image", tooltip="Reference image for vision model analysis"),
                         prefix="image_", min=0, max=32)),
                 io.Autogrow.Input("videos", optional=True,
                     template=io.Autogrow.TemplatePrefix(
-                        input=io.Image.Input("video", tooltip="Reference video frames [B,H,W,C] at native fps"),
+                        input=io.Image.Input("video", display_name="Reference Video", tooltip="Reference video frames [B,H,W,C] at native fps"),
                         prefix="video_", min=0, max=32)),
                 io.Autogrow.Input("video_audios", optional=True,
                     template=io.Autogrow.TemplatePrefix(
-                        input=io.Audio.Input("video_audio", tooltip="Soundtrack of the same-numbered reference video"),
+                        input=io.Audio.Input("video_audio", display_name="Video Audio", tooltip="Soundtrack of the same-numbered reference video"),
                         prefix="video_audio_", min=0, max=32)),
                 io.Autogrow.Input("audios", optional=True,
                     template=io.Autogrow.TemplatePrefix(
-                        input=io.Audio.Input("audio", tooltip="Standalone reference audio"),
+                        input=io.Audio.Input("audio", display_name="Reference Audio", tooltip="Standalone reference audio"),
                         prefix="audio_", min=0, max=32)),
             ],
             outputs=[
@@ -1301,8 +1330,4 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 print(f"[zyd232 LLM] Failed to auto-lock prompt: {e}")
 
         return io.NodeOutput(final_text, reasoning)
-
-
-NODE_CLASS_MAPPINGS = {"zyd232 LLMGenerator": zyd232_LLMGeneratorV3}
-NODE_DISPLAY_NAME_MAPPINGS = {"zyd232 LLMGenerator": "LLM Text Generator"}
 
