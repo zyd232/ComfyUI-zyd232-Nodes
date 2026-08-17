@@ -209,9 +209,7 @@ async def fetch_models_endpoint(request):
         v1_url = base_url if (base_url.endswith("/v1") or base_url.endswith("/v1/")) else f"{base_url}/v1"
         models_url = f"{v1_url}/models"
 
-        auth_key = "".join(["Auth", "oriza", "tion"])
-        auth_val = f"{'Bea' + 'rer'} {api_key}"
-        headers = {auth_key: auth_val, "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
         def fetch_url(url):
             req = urllib.request.Request(url, headers=headers)
@@ -922,9 +920,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         v1_url = clean_base_url if (clean_base_url.endswith("/v1") or clean_base_url.endswith("/v1/")) else f"{clean_base_url}/v1"
         chat_url = f"{v1_url}/chat/completions"
 
-        auth_key = "".join(["Auth", "oriza", "tion"])
-        auth_val = f"{'Bea' + 'rer'} {actual_key}"
-        headers = {auth_key: auth_val, "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {actual_key}", "Content-Type": "application/json"}
 
         messages = []
 
