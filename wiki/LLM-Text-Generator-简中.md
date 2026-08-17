@@ -79,10 +79,10 @@
 
 | 输入 | 说明 | 数量上限 |
 |------|------|---------|
-| **images** | 参考图片（`image_0`、`image_1` …），转换为 base64 PNG 发送 | 0–9 |
-| **videos** | 参考视频（`video_0` …）；采样帧作为图片发送 | 0–3 |
-| **video_audios** | 与同编号参考视频对应的音轨（`video_audio_0` …） | 0–3 |
-| **audios** | 独立参考音频（`audio_0` …） | 0–5 |
+| **images** | 参考图片（`image_0`、`image_1` …），转换为 base64 PNG 发送 | 0–32 |
+| **videos** | 参考视频（`video_0` …）；采样帧作为图片发送 | 0–32 |
+| **video_audios** | 与同编号参考视频对应的音轨（`video_audio_0` …） | 0–32 |
+| **audios** | 独立参考音频（`audio_0` …） | 0–32 |
 
 > 输入遵循与 MiniMax H3 Reference to Video 相同的模式：连接 `image_0` 会显示 `image_1`，以此类推。
 

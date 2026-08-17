@@ -613,19 +613,19 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 io.Autogrow.Input("images", optional=True,
                     template=io.Autogrow.TemplatePrefix(
                         input=io.Image.Input("image", tooltip="Reference image for vision model analysis"),
-                        prefix="image_", min=0, max=9)),
+                        prefix="image_", min=0, max=32)),
                 io.Autogrow.Input("videos", optional=True,
                     template=io.Autogrow.TemplatePrefix(
                         input=io.Image.Input("video", tooltip="Reference video frames [B,H,W,C] at native fps"),
-                        prefix="video_", min=0, max=3)),
+                        prefix="video_", min=0, max=32)),
                 io.Autogrow.Input("video_audios", optional=True,
                     template=io.Autogrow.TemplatePrefix(
                         input=io.Audio.Input("video_audio", tooltip="Soundtrack of the same-numbered reference video"),
-                        prefix="video_audio_", min=0, max=3)),
+                        prefix="video_audio_", min=0, max=32)),
                 io.Autogrow.Input("audios", optional=True,
                     template=io.Autogrow.TemplatePrefix(
                         input=io.Audio.Input("audio", tooltip="Standalone reference audio"),
-                        prefix="audio_", min=0, max=5)),
+                        prefix="audio_", min=0, max=32)),
             ],
             outputs=[
                 io.String.Output(display_name="text"),

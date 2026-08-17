@@ -79,10 +79,10 @@ The node supports multiple reference images, videos, and audio via autogrow inpu
 
 | Input | Description | Max count |
 |-------|-------------|-----------|
-| **images** | Reference images (`image_0`, `image_1`, …), converted to base64 PNG | 0–9 |
-| **videos** | Reference videos (`video_0`, …); frames are sampled and sent as images | 0–3 |
-| **video_audios** | Soundtrack of the same-numbered reference video (`video_audio_0`, …) | 0–3 |
-| **audios** | Standalone reference audio (`audio_0`, …) | 0–5 |
+| **images** | Reference images (`image_0`, `image_1`, …), converted to base64 PNG | 0–32 |
+| **videos** | Reference videos (`video_0`, …); frames are sampled and sent as images | 0–32 |
+| **video_audios** | Soundtrack of the same-numbered reference video (`video_audio_0`, …) | 0–32 |
+| **audios** | Standalone reference audio (`audio_0`, …) | 0–32 |
 
 > The inputs follow the same pattern as MiniMax H3 Reference to Video: connect `image_0` to reveal `image_1`, and so on.
 
