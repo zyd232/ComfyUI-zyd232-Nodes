@@ -104,9 +104,9 @@ Video frame labels also start from 1: `video_1_frame_1`, `video_1_frame_2`, … 
 
 **Example**: Suppose you connect 3 reference images (input ports `image_0`, `image_1`, `image_2`). In your prompt you should refer to them like this:
 
-> Compare the composition of **image_1** and **image_2**, and describe the subject in **image_3**.
+> Compare the composition of **Image 1** and **Image 2**, and describe the subject in **Image 3**.
 
-Here `image_1` maps to input port `image_0`, `image_2` maps to `image_1`, and `image_3` maps to `image_2`. The node automatically annotates these 1-based labels in the media manifest sent to the model and instructs it to reference them by those numbers, so your prompt must use **1-based** numbering.
+Here **Image 1** maps to input port `image_0`, **Image 2** maps to `image_1`, and **Image 3** maps to `image_2`. The node automatically annotates these 1-based labels (`image_1`, `image_2`, `image_3`) in the media manifest sent to the model and instructs it to reference them by those numbers, so your prompt must use **1-based** numbering (i.e. start counting from 1).
 
 ### Video sampling controls
 
