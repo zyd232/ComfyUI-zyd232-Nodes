@@ -447,11 +447,111 @@ function renderText(node) {
 // Map of node_id -> node, so events can be routed to the correct instance.
 const nodeById = new Map();
 
+// Buffer of stream events that arrived while their target node was not present
+// in the frontend (e.g. the node lives in a non-active workflow tab whose graph
+// is unloaded by ComfyUI until the tab is activated). When the node is later
+// registered (onAdded/onConfigure/recreation), the buffered events are replayed
+// so the content that was streamed while the node was absent is not lost.
+const pendingEvents = new Map();
+
+// Snapshot of a node's streaming state (content/reasoning/streaming flags)
+// captured when the node is removed. ComfyUI destroys nodes that live in a
+// non-active workflow tab, which would otherwise wipe the accumulated streaming
+// text. When the node is recreated (tab switched back), this snapshot is
+// restored onto the new node so previously streamed content is not lost.
+const pendingState = new Map();
+
+// Find a node by id across the graphs that are currently loaded in the
+// frontend. This is a fallback for when a stream event arrives for a node that
+// has not yet been registered in `nodeById` (e.g. an LLM node living in a
+// non-active workflow tab whose onAdded/onConfigure have not fired yet).
+//
+// We search the active graph first (app.graph / app.canvas.graph), then fall
+// back to any graph reachable through the node registry we maintain. Because
+// ComfyUI's multi-tab graph storage is version-dependent, we defensively scan
+// the active graph and any graph objects we can discover.
+function findNodeById(id) {
+    const key = String(id);
+    const seen = new Set();
+    // Recursively scan a graph and any subgraphs reachable from it. Subgraph
+    // nodes expose their inner graph via `node.subgraph` (or `node.graph` for
+    // the top-level graph), so we walk those to find a node that may live
+    // inside a subgraph.
+    const scan = (graph) => {
+        if (!graph || !Array.isArray(graph._nodes) || seen.has(graph)) return null;
+        seen.add(graph);
+        for (const n of graph._nodes) {
+            if (!n) continue;
+            if (String(n.id) === key) return n;
+            // Recurse into subgraphs.
+            const inner = n.subgraph || (n.graph && n.graph !== graph ? n.graph : null);
+            if (inner) {
+                const found = scan(inner);
+                if (found) return found;
+            }
+        }
+        return null;
+    };
+    // Active graph (both accessors point to the same object in practice).
+    const active = app.graph || (app.canvas && app.canvas.graph);
+    let node = scan(active);
+    if (node) return node;
+    // Also scan the canvas graph explicitly in case it differs.
+    if (app.canvas && app.canvas.graph && app.canvas.graph !== active) {
+        node = scan(app.canvas.graph);
+        if (node) return node;
+    }
+    return null;
+}
+
+// Restore a node's streaming state snapshot (captured when the node was removed
+// because its workflow tab was deactivated) onto a freshly recreated node. This
+// preserves content that was already accumulated before the node was destroyed.
+function restorePendingState(node) {
+    const key = String(node.id);
+    const snap = pendingState.get(key);
+    if (!snap) return;
+    pendingState.delete(key);
+    const st = getState(node);
+    st.content = snap.content || "";
+    st.reasoning = snap.reasoning || "";
+    st.streaming = !!snap.streaming;
+    st.lastDone = !!snap.lastDone;
+    st.locked = !!snap.locked;
+    renderText(node);
+}
+
+// Replay buffered stream events for a node that has just been registered. This
+// restores content that was streamed while the node was absent from the
+// frontend (e.g. its workflow tab was not active). Events are replayed in
+// arrival order so the start/chunk/done sequence reconstructs the full result.
+function replayPendingEvents(node) {
+    const key = String(node.id);
+    const events = pendingEvents.get(key);
+    if (!events || events.length === 0) return;
+    pendingEvents.delete(key);
+    for (const ev of events) {
+        handleStreamEvent(ev);
+    }
+}
+
 function handleStreamEvent(data) {
-    const node = nodeById.get(String(data.node_id));
+    let node = nodeById.get(String(data.node_id));
     if (!node) {
-        console.log("[zyd232 Stream] no node found for id:", data.node_id, "registered ids:", [...nodeById.keys()]);
-        return;
+        // The node is not registered yet. Try to find it in the loaded graphs
+        // and register it on the fly so the streamed content is not dropped.
+        node = findNodeById(data.node_id);
+        if (node) {
+            nodeById.set(String(data.node_id), node);
+        } else {
+            // The node is not present in the frontend at all (its workflow tab
+            // is not active and ComfyUI has unloaded that graph). Buffer the
+            // event so it can be replayed once the node is registered again.
+            const key = String(data.node_id);
+            if (!pendingEvents.has(key)) pendingEvents.set(key, []);
+            pendingEvents.get(key).push(data);
+            return;
+        }
     }
     const st = getState(node);
 
@@ -515,12 +615,52 @@ export function setupStreamingPanel(node) {
     // Register this node in the id -> node map for event routing. The node id
     // is not assigned yet during nodeCreated (it is -1), so register it once the
     // node is actually added to the graph (onAdded), when node.id is final.
+    // Tracks whether the node's widgets have been restored (onConfigure). Stream
+    // events buffered while the node was absent must be replayed only after the
+    // widgets are restored, because replayed events (e.g. the "done" event that
+    // triggers auto_lock) depend on widget values like auto_lock.
+    let configured = false;
     const registerNode = () => {
         if (node.id != null && String(node.id) !== "-1") {
             nodeById.set(String(node.id), node);
+            // Restore state and replay buffered events only once the node has
+            // been configured (widgets restored). Before that, defer so that
+            // widget-dependent logic in the replayed events sees correct values.
+            if (configured) {
+                restorePendingState(node);
+                replayPendingEvents(node);
+            } else if (pendingState.has(String(node.id)) || pendingEvents.has(String(node.id))) {
+                // The node has pending state/events but has not been configured
+                // yet (onConfigure may not have fired). Retry shortly so the
+                // content is restored even if onConfigure is delayed or absent.
+                setTimeout(() => {
+                    if (configured) {
+                        restorePendingState(node);
+                        replayPendingEvents(node);
+                    }
+                }, 300);
+            }
+            return true;
         }
+        return false;
     };
     registerNode();
+    // If the node id is not assigned yet (node created but not yet added to a
+    // graph — which can happen for nodes living in a non-active workflow tab
+    // whose onAdded/onConfigure have not fired), keep retrying until the id
+    // becomes valid so the node is registered in `nodeById` and stream events
+    // can be routed to it. This complements the on-the-fly graph lookup in
+    // handleStreamEvent.
+    if (node.id == null || String(node.id) === "-1") {
+        const retryTimer = setInterval(() => {
+            if (registerNode()) {
+                clearInterval(retryTimer);
+            }
+        }, 500);
+        // Stop retrying after 30s to avoid leaking a timer for a node that is
+        // never added to a graph.
+        setTimeout(() => clearInterval(retryTimer), 30000);
+    }
     // onAdded fires when the node is added to the graph (id assigned for new
     // nodes). onConfigure fires after a loaded workflow restores the node, by
     // which point the real id is available. Register in both to cover creation
@@ -532,6 +672,9 @@ export function setupStreamingPanel(node) {
     };
     const origOnConfigure = node.onConfigure ? node.onConfigure.bind(node) : null;
     node.onConfigure = function (...rest) {
+        // Mark the node as configured (widgets restored) so registerNode() can
+        // restore state and replay buffered events with correct widget values.
+        configured = true;
         registerNode();
         // After a workflow is loaded/pasted, restore the locked state (button
         // icon, Clear availability, and the locked content display).
@@ -553,7 +696,26 @@ export function setupStreamingPanel(node) {
     // helper already removes the DOM panel via its own onRemoved hook.)
     const origRemoved = node.onRemoved ? node.onRemoved.bind(node) : null;
     node.onRemoved = function (...rest) {
+        // Capture the current streaming state before the node is destroyed.
+        // ComfyUI destroys nodes that live in a non-active workflow tab, which
+        // would otherwise wipe the accumulated streaming text. Saving it here
+        // lets a recreated node restore the content when the tab is switched
+        // back. Only save when there is meaningful content or an in-progress
+        // stream, so we do not resurrect stale state for a freshly-cleared node.
+        const st = getState(node);
+        if (st.content || st.reasoning || st.streaming || st.lastDone) {
+            pendingState.set(String(node.id), {
+                content: st.content,
+                reasoning: st.reasoning,
+                streaming: st.streaming,
+                lastDone: st.lastDone,
+                locked: st.locked,
+            });
+        }
         nodeById.delete(String(node.id));
+        // Drop any buffered events for this node so they are not replayed into
+        // a stale/recreated instance later.
+        pendingEvents.delete(String(node.id));
         if (origRemoved) return origRemoved(...rest);
     };
 }
