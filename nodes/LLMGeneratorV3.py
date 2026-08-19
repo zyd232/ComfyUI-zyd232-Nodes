@@ -416,19 +416,37 @@ async def stop_generation_endpoint(request):
         if not gen:
             return web.json_response({"success": False, "error": "No active generation to stop"})
 
+        # Abort the current workflow FIRST so ComfyUI stops immediately and does
+        # not continue to downstream nodes after the LLM node returns. This must
+        # happen before close_active_connection(), because closing the streaming
+        # response can block on the aiohttp event-loop thread (e.g. waiting for
+        # the server to drop the connection), which would otherwise delay the
+        # interrupt and let downstream nodes start executing.
+        try:
+            nodes.interrupt_processing()
+            print("[zyd232 LLM] Workflow interrupted by Stop Generation.")
+        except Exception as e:
+            print(f"[zyd232 LLM] Failed to interrupt workflow: {e}")
+
         closed = close_active_connection()
 
         # Record that this generation was stopped (incomplete) so that
         # fingerprint_inputs forces the node to re-run on the next execution.
         _set_last_generation_stopped(True)
 
-        # Also abort the current workflow so downstream nodes do not run after
-        # the LLM node returns its partial text.
+        # Send a stop/cancel command on a background thread. This is required for
+        # servers like llama.cpp that do NOT stop prompt processing when the
+        # streaming connection is closed; they only stop on an explicit
+        # unload/exit command. For servers that stop on connection close
+        # (Ollama/vLLM/OpenAI-compatible) these requests simply fail harmlessly.
         try:
-            nodes.interrupt_processing()
-            print("[zyd232 LLM] Workflow interrupted by Stop Generation.")
+            _send_stop_command_async(
+                gen.get("base_url") or "",
+                gen.get("model") or "",
+                {"Authorization": f"Bearer {gen.get('api_key') or ''}", "Content-Type": "application/json"},
+            )
         except Exception as e:
-            print(f"[zyd232 LLM] Failed to interrupt workflow: {e}")
+            print(f"[zyd232 LLM] Failed to send stop command: {e}")
 
         return web.json_response({
             "success": True,
@@ -437,6 +455,69 @@ async def stop_generation_endpoint(request):
         })
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)})
+
+
+def _send_unload_async(url, payload, headers, timeout_sec=5, method='POST'):
+    """Send an unload request on a background daemon thread.
+
+    Used so that unload requests never block the node's execute() from
+    returning. llama.cpp stops processing (and unloads the model) only when it
+    receives an unload/exit command, so this must be sent even when the user has
+    not enabled the unload option, otherwise the server would keep processing the
+    multimodal prompt after a Stop.
+
+    ``method`` defaults to POST; pass 'DELETE' for servers that expect a DELETE
+    unload request (e.g. the general /v1/models/unload endpoint).
+    """
+    def _do():
+        try:
+            req = urllib.request.Request(
+                url, data=json.dumps(payload).encode('utf-8'),
+                headers=headers, method=method
+            )
+            urllib.request.urlopen(req, timeout=timeout_sec)
+        except Exception as e:
+            print(f"[zyd232 LLM] Async unload request failed: {e}")
+
+    threading.Thread(target=_do, daemon=True).start()
+
+
+def _send_stop_command_async(base_url, model, headers, timeout_sec=3):
+    """Send a stop/cancel command on a background daemon thread.
+
+    Different LLM servers stop streaming in different ways:
+      * Ollama / vLLM / generic OpenAI-compatible servers stop as soon as the
+        streaming connection is closed (handled by close_active_connection()).
+      * llama.cpp does NOT stop prompt processing when the connection is closed;
+        it only stops when it receives an explicit unload/exit command.
+
+    So on Stop we additionally try a small set of well-known unload/exit
+    endpoints. For servers that don't need it (Ollama/vLLM) these requests simply
+    fail (404 etc.) and are ignored, which is harmless. For llama.cpp the first
+    matching endpoint makes it stop immediately.
+
+    Runs on a daemon thread so it never blocks the caller.
+    """
+    candidates = [
+        f"{base_url}/models/unload",            # llama.cpp default
+        f"{base_url}/v1/models/unload",         # OpenAI-compatible unload
+        f"{base_url}/slots/0?action=release",   # llama.cpp slot release
+    ]
+
+    def _do():
+        for url in candidates:
+            try:
+                req = urllib.request.Request(
+                    url, data=json.dumps({"model": model}).encode('utf-8'),
+                    headers=headers, method='POST'
+                )
+                urllib.request.urlopen(req, timeout=timeout_sec)
+                print(f"[zyd232 LLM] Stop command accepted by {url}")
+                return  # success: stop trying further endpoints
+            except Exception:
+                continue  # try the next endpoint
+
+    threading.Thread(target=_do, daemon=True).start()
 
 
 # ======================= Node Class (V3 API) =======================
@@ -903,6 +984,20 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
 
         has_media = bool(all_images) or bool(video_frames) or bool(video_audio_items) or bool(audio_items)
 
+        # --- Register the active generation EARLY so the Stop button can also
+        # interrupt the (potentially slow) multimodal base64-encoding phase that
+        # runs before send_post(). Without this, clicking Stop while images/videos
+        # are being encoded would find no active generation and the stop flag
+        # would never be set, so the node would keep running until encoding ends.
+        # The model is a placeholder here; it is updated to actual_model after
+        # encoding (see below). ---
+        register_active_generation({
+            "base_url": clean_base_url,
+            "model": model,
+            "api_key": actual_key,
+        })
+        encoding_stopped = False
+
         # Start with the user prompt text.
         content = [{"type": "text", "text": user_prompt}]
 
@@ -930,12 +1025,18 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
 
         # Append each image with a 1-based label right before it.
         for idx, img in all_images:
+            if is_generation_stopped():
+                encoding_stopped = True
+                break
             content.append({"type": "text", "text": f"[image_{idx + 1}]"})
             b64 = cls.tensor_to_base64(img)
             content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
 
         # Append each sampled video frame with a per-video 1-based label.
         for v_idx, f_idx, frame, _ts in video_frames:
+            if is_generation_stopped():
+                encoding_stopped = True
+                break
             content.append({"type": "text", "text": f"[video_{v_idx + 1}_frame_{f_idx + 1}]"})
             b64 = cls.tensor_to_base64(frame)
             content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
@@ -944,6 +1045,9 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         if video_audio_items or audio_items:
             if enable_audio:
                 for idx, a in video_audio_items:
+                    if is_generation_stopped():
+                        encoding_stopped = True
+                        break
                     try:
                         content.append({"type": "text", "text": f"[video_audio_{idx + 1}]"})
                         b64 = cls.audio_to_base64_wav(a)
@@ -953,20 +1057,36 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                         }})
                     except Exception as e:
                         print(f"[zyd232 LLM] Failed to encode video audio: {e}")
-                for idx, a in audio_items:
-                    try:
-                        content.append({"type": "text", "text": f"[audio_{idx + 1}]"})
-                        b64 = cls.audio_to_base64_wav(a)
-                        content.append({"type": "input_audio", "input_audio": {
-                            "data": f"data:audio/wav;base64,{b64}",
-                            "format": "wav",
-                        }})
-                    except Exception as e:
-                        print(f"[zyd232 LLM] Failed to encode audio: {e}")
+                if not encoding_stopped:
+                    for idx, a in audio_items:
+                        if is_generation_stopped():
+                            encoding_stopped = True
+                            break
+                        try:
+                            content.append({"type": "text", "text": f"[audio_{idx + 1}]"})
+                            b64 = cls.audio_to_base64_wav(a)
+                            content.append({"type": "input_audio", "input_audio": {
+                                "data": f"data:audio/wav;base64,{b64}",
+                                "format": "wav",
+                            }})
+                        except Exception as e:
+                            print(f"[zyd232 LLM] Failed to encode audio: {e}")
             else:
                 print("[zyd232 LLM] Audio references provided but 'enable_audio' is disabled; skipping audio.")
 
         messages.append({"role": "user", "content": content})
+
+        # If the user pressed Stop during the multimodal encoding phase, abort
+        # before sending the request and return the (empty) partial result. This
+        # mirrors the stop path taken when send_post() is interrupted, so the
+        # frontend receives a terminal done/stopped event and the node is marked
+        # as stopped (forcing a re-run on the next execution).
+        if encoding_stopped:
+            print("[zyd232 LLM] Generation stopped during multimodal encoding.")
+            push_stream_event(scope, "", "", done=True, stopped=True)
+            _set_last_generation_stopped(True)
+            clear_active_generation()
+            return io.NodeOutput("", "")
 
         # Decide which model to use
         if has_media:
@@ -992,7 +1112,12 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         reasoning = ""
         final_text = ""
 
-        # --- Register the active generation so the Stop button can interrupt it ---
+        # --- Refresh the active-generation registry with the resolved model ---
+        # (registered earlier, before encoding, so the Stop button could interrupt
+        # the encoding phase; here we update the model metadata now that it is
+        # known. register_active_generation resets the stopped flag, which is safe
+        # because if the user had stopped during encoding we would have returned
+        # above and never reached this point.) ---
         register_active_generation({
             "base_url": clean_base_url,
             "model": actual_model,
@@ -1023,87 +1148,183 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 url, data=json.dumps(payload_dict).encode('utf-8'),
                 headers=headers, method='POST'
             )
-            response = urllib.request.urlopen(req, timeout=timeout_sec)
+
+            def _open_with_stop_check(req, timeout_sec):
+                """阻塞地打开 URL，但在等待期间响应 Stop 按钮。
+
+                用后台线程执行阻塞的 urlopen，主线程轮询
+                is_generation_stopped()。检测到停止时抛 URLError，由调用方
+                按"用户停止"处理（返回已累积的部分文本）。
+
+                设计要点（避免 ComfyUI 报错 / 卡死）：
+                * 使用 daemon 线程且不 join，主线程不会被阻塞在等待后台线程
+                  结束上（避免 ThreadPoolExecutor shutdown(wait=True) 的坑，
+                  否则 urlopen 仍在阻塞时 send_post 会一直卡住）。
+                * 后台线程把结果或异常放入 result_box，主线程通过 done_event
+                  轮询，异常不会在后台线程中静默丢失。
+                * 若停止后 urlopen 才返回，后台线程立即关闭连接，避免泄漏，
+                  且不会操作已清空的 active-generation registry。
+                """
+                result_box = {}
+                done_event = threading.Event()
+
+                def _open():
+                    try:
+                        resp = urllib.request.urlopen(req, timeout=timeout_sec)
+                        if is_generation_stopped():
+                            # 停止后 urlopen 才返回：立即关闭连接，避免泄漏
+                            try:
+                                resp.close()
+                            except Exception:
+                                pass
+                            result_box["stopped"] = True
+                        else:
+                            result_box["response"] = resp
+                    except Exception as e:
+                        result_box["error"] = e
+                    finally:
+                        done_event.set()
+
+                worker = threading.Thread(target=_open, daemon=True)
+                worker.start()
+
+                try:
+                    while not done_event.wait(timeout=0.2):
+                        if is_generation_stopped():
+                            raise urllib.error.URLError("Generation stopped by user")
+                    if "error" in result_box:
+                        raise result_box["error"]
+                    if "stopped" in result_box:
+                        raise urllib.error.URLError("Generation stopped by user")
+                    return result_box["response"]
+                finally:
+                    # daemon 线程不 join，避免阻塞主线程
+                    pass
+
+            response = _open_with_stop_check(req, timeout_sec)
             set_active_response(response)
             # Signal the start of a new generation so the frontend clears any
             # previous content before the first chunk arrives.
             if push_done:
                 push_stream_event(scope, "", "", start=True)
-            acc_text = ""
-            acc_reasoning = ""
-            # State machine that splits think-tagged reasoning out of the content
-            # stream in real time. Used when thinking is enabled and the API does
-            # not provide native reasoning_content.
-            parser = _ThinkingStreamParser(think_start_tag, think_end_tag) if thinking else None
-            try:
-                for raw_line in response:
-                    line = raw_line.decode('utf-8', errors='replace').strip()
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data = line[len("data:"):].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                    except Exception:
-                        continue
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta") or {}
-                    delta_text = delta.get("content") or ""
-                    delta_reasoning = delta.get("reasoning_content") or ""
 
-                    # If the API provides native reasoning_content, trust it
-                    # directly and push it as reasoning.
-                    if delta_reasoning:
-                        acc_reasoning += delta_reasoning
-                        push_stream_event(scope, "", delta_reasoning, done=False, stopped=False)
+            # --- Stream the response on a background thread while the main thread
+            # polls the Stop flag. This is essential because `for raw_line in
+            # response` blocks on readline() while the LLM server is still doing
+            # prompt processing (multimodal decoding) and has not yet sent the
+            # first chunk. During that window the loop body (which checks
+            # is_generation_stopped()) never runs, and closing the response from
+            # another thread does not reliably interrupt a blocked readline() on
+            # Windows. By reading on a daemon thread and polling on the main
+            # thread, the main thread can return immediately when Stop is pressed,
+            # regardless of how long the server takes to start streaming. ---
+            result_box = {}
+            done_event = threading.Event()
 
-                    # For the content stream: when thinking is enabled and the API
-                    # did not provide native reasoning, use the state machine to
-                    # separate think-tagged reasoning from the final answer.
-                    if delta_text:
-                        if parser is not None and not delta_reasoning:
-                            content_part, reasoning_part = parser.feed(delta_text)
-                            if content_part:
-                                acc_text += content_part
-                                push_stream_event(scope, content_part, "", done=False, stopped=False)
-                            if reasoning_part:
-                                acc_reasoning += reasoning_part
-                                push_stream_event(scope, "", reasoning_part, done=False, stopped=False)
-                        else:
-                            acc_text += delta_text
-                            push_stream_event(scope, delta_text, "", done=False, stopped=False)
-
-                    # If the Stop button was pressed, stop accumulating and return
-                    # whatever text has been received so far.
-                    if is_generation_stopped():
-                        break
-
-                # Flush any remaining buffered text from the state machine (e.g.
-                # a trailing partial tag prefix) before signalling completion.
-                if parser is not None:
-                    content_part, reasoning_part = parser.flush()
-                    if content_part:
-                        acc_text += content_part
-                        push_stream_event(scope, content_part, "", done=False, stopped=False)
-                    if reasoning_part:
-                        acc_reasoning += reasoning_part
-                        push_stream_event(scope, "", reasoning_part, done=False, stopped=False)
-
-                # Signal completion so the frontend can finalize the display. Only
-                # the actual LLM generation call (push_done=True) emits this event;
-                # unload requests reuse send_post but must not signal completion.
-                if push_done:
-                    push_stream_event(scope, "", "", done=True, stopped=is_generation_stopped())
-                return acc_text, acc_reasoning
-            finally:
+            def _read_stream():
                 try:
-                    response.close()
-                except Exception:
-                    pass
-                set_active_response(None)
+                    acc_text = ""
+                    acc_reasoning = ""
+                    parser = _ThinkingStreamParser(think_start_tag, think_end_tag) if thinking else None
+                    for raw_line in response:
+                        line = raw_line.decode('utf-8', errors='replace').strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data = line[len("data:"):].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except Exception:
+                            continue
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta") or {}
+                        delta_text = delta.get("content") or ""
+                        delta_reasoning = delta.get("reasoning_content") or ""
+
+                        # If the API provides native reasoning_content, trust it
+                        # directly and push it as reasoning.
+                        if delta_reasoning:
+                            acc_reasoning += delta_reasoning
+                            push_stream_event(scope, "", delta_reasoning, done=False, stopped=False)
+
+                        # For the content stream: when thinking is enabled and the API
+                        # did not provide native reasoning, use the state machine to
+                        # separate think-tagged reasoning from the final answer.
+                        if delta_text:
+                            if parser is not None and not delta_reasoning:
+                                content_part, reasoning_part = parser.feed(delta_text)
+                                if content_part:
+                                    acc_text += content_part
+                                    push_stream_event(scope, content_part, "", done=False, stopped=False)
+                                if reasoning_part:
+                                    acc_reasoning += reasoning_part
+                                    push_stream_event(scope, "", reasoning_part, done=False, stopped=False)
+                            else:
+                                acc_text += delta_text
+                                push_stream_event(scope, delta_text, "", done=False, stopped=False)
+
+                        # If the Stop button was pressed, stop accumulating and return
+                        # whatever text has been received so far.
+                        if is_generation_stopped():
+                            break
+
+                    # Flush any remaining buffered text from the state machine (e.g.
+                    # a trailing partial tag prefix) before signalling completion.
+                    if parser is not None:
+                        content_part, reasoning_part = parser.flush()
+                        if content_part:
+                            acc_text += content_part
+                            push_stream_event(scope, content_part, "", done=False, stopped=False)
+                        if reasoning_part:
+                            acc_reasoning += reasoning_part
+                            push_stream_event(scope, "", reasoning_part, done=False, stopped=False)
+
+                    result_box["result"] = (acc_text, acc_reasoning)
+                except Exception as e:
+                    result_box["error"] = e
+                finally:
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+                    # Only detach the response if the registry still holds this
+                    # generation. If execute() already cleared the registry (stop
+                    # path), do nothing to avoid re-adding a stale key.
+                    if get_active_generation() is not None:
+                        set_active_response(None)
+                    done_event.set()
+
+            worker = threading.Thread(target=_read_stream, daemon=True)
+            worker.start()
+
+            try:
+                while not done_event.wait(timeout=0.2):
+                    if is_generation_stopped():
+                        # Stop pressed while the server is still processing the
+                        # prompt (no chunk received yet). Close the response to
+                        # try to unblock the background reader, then return
+                        # immediately with whatever (possibly empty) text we have.
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
+                        raise urllib.error.URLError("Generation stopped by user")
+                if "error" in result_box:
+                    raise result_box["error"]
+                acc_text, acc_reasoning = result_box["result"]
+            finally:
+                # daemon 线程不 join，避免阻塞主线程
+                pass
+
+            # Signal completion so the frontend can finalize the display. Only
+            # the actual LLM generation call (push_done=True) emits this event;
+            # unload requests reuse send_post but must not signal completion.
+            if push_done:
+                push_stream_event(scope, "", "", done=True, stopped=is_generation_stopped())
+            return acc_text, acc_reasoning
 
         try:
             print(f"[zyd232 LLM] Sending request to {chat_url} with model: {actual_model}...")
@@ -1171,27 +1392,29 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         full_unload_url = f"{clean_base_url}/{unload_endpoint.lstrip('/')}"
         full_llama_url = f"{clean_base_url}/{llama_endpoint.lstrip('/')}"
 
-        if unload_after_gen:
+        # Unload requests are sent whenever the generation was stopped OR the
+        # unload option is enabled. This is essential: llama.cpp stops processing
+        # (and unloads the model) only when it receives an unload/exit command,
+        # NOT when the streaming connection is closed. So even if the user has not
+        # enabled the unload option, a Stop must still send the unload command,
+        # otherwise the server would keep processing the multimodal prompt.
+        #
+        # All unload requests are dispatched on background daemon threads so they
+        # never block execute() from returning (the node stops immediately).
+        if _generation_was_stopped or unload_after_gen:
             try:
                 print(f"[zyd232 LLM] Sending general unload request to: {full_unload_url}")
-                req_del = urllib.request.Request(full_unload_url, headers=headers, method='DELETE')
-                try:
-                    urllib.request.urlopen(req_del, timeout=5)
-                except urllib.error.HTTPError as e:
-                    if e.code not in [200, 204]:
-                        send_post(full_unload_url, {"action": "unload", "model": actual_model, "keep_alive": 0}, timeout_sec=5, push_done=False)
+                # Dispatch on a background thread so the DELETE request never
+                # blocks execute() from returning. The server may take a while to
+                # unload/clean up, and we must not wait for it.
+                _send_unload_async(full_unload_url, {"action": "unload", "model": actual_model, "keep_alive": 0}, headers, method='DELETE')
             except Exception as e:
                 print(f"[zyd232 LLM] General Unload failed: {e}")
 
-        if llama_cpp_unload:
+        if _generation_was_stopped or llama_cpp_unload:
             try:
                 print(f"[zyd232 LLM] Sending unload signal to llama.cpp at: {full_llama_url} for model: {actual_model}...")
-                try:
-                    send_post(full_llama_url, {"model": actual_model}, timeout_sec=5, push_done=False)
-                except urllib.error.HTTPError as e:
-                    if e.code in [404, 502]:
-                        fallback_slot_url = f"{clean_base_url}/slots/0?action=release"
-                        send_post(fallback_slot_url, {}, timeout_sec=5, push_done=False)
+                _send_unload_async(full_llama_url, {"model": actual_model}, headers)
             except Exception as e:
                 print(f"[zyd232 LLM] llama.cpp Unload request failed: {e}")
 
