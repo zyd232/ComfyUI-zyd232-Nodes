@@ -98,15 +98,16 @@ def push_stream_event(scope, content="", reasoning_content="",
 # ======================= Active Generation Registry (shared) =======================
 # Tracks the currently running streaming generation so a Stop button (handled on
 # the aiohttp event-loop thread) can interrupt the streaming request that runs on
-# ComfyUI's execution thread. During streaming the response object is available,
-# so closing it makes the reader raise and return the partial text.
+# ComfyUI's execution thread. The generation runs as an asyncio task on ComfyUI's
+# event loop; cancelling that task immediately interrupts the connection and the
+# stream reader.
 #
 # Structure:
 #   {
 #       "base_url": str,          # cleaned base url of the service
 #       "model": str,             # model actually being used
 #       "api_key": str,           # resolved api key
-#       "response": object,       # the active streaming response (may be None)
+#       "task": Future,           # the active asyncio task (may be None)
 #       "stopped": bool,          # set to True once a stop has been requested
 #   }
 _active_generation = {}
@@ -122,7 +123,7 @@ def get_active_generation():
 def register_active_generation(info):
     """Record metadata of the generation about to start (base_url/model/api_key).
 
-    ``info`` may contain any subset of the registry keys; ``response`` and
+    ``info`` may contain any subset of the registry keys; ``task`` and
     ``stopped`` are always reset for the new generation.
     """
     with _active_generation_lock:
@@ -130,21 +131,21 @@ def register_active_generation(info):
             "base_url": info.get("base_url"),
             "model": info.get("model"),
             "api_key": info.get("api_key"),
-            "response": None,
+            "task": None,
             "stopped": False,
         })
 
 
-def set_active_response(response):
-    """Attach the live streaming response so Stop can close it."""
+def set_active_task(task):
+    """Attach the live asyncio task so Stop can cancel it."""
     with _active_generation_lock:
-        _active_generation["response"] = response
+        _active_generation["task"] = task
 
 
-def clear_active_response():
-    """Detach the streaming response (generation finished or aborted)."""
+def clear_active_task():
+    """Detach the asyncio task (generation finished or aborted)."""
     with _active_generation_lock:
-        _active_generation["response"] = None
+        _active_generation["task"] = None
 
 
 def is_generation_stopped():
@@ -153,30 +154,31 @@ def is_generation_stopped():
         return bool(_active_generation.get("stopped"))
 
 
-def close_active_connection():
-    """Close the active streaming response to interrupt the running generation.
+def cancel_active_task():
+    """Cancel the active asyncio task to interrupt the running generation.
 
-    Closing it makes the reader raise, which is caught by the caller and
-    reported as a user-initiated stop (partial text is returned).
+    Cancelling the task makes the async stream reader raise CancelledError, which
+    is caught by the caller and reported as a user-initiated stop (partial text
+    is returned).
 
-    Returns True if a connection was actually closed, False otherwise.
+    Returns True if a task was actually cancelled, False otherwise.
     """
     with _active_generation_lock:
         gen = dict(_active_generation) if _active_generation else None
     if not gen:
         return False
-    response = gen.get("response")
-    # Mark as stopped so the reader can detect the interruption.
+    task = gen.get("task")
+    # Mark as stopped so the caller can detect the interruption.
     with _active_generation_lock:
         _active_generation["stopped"] = True
-    closed = False
+    cancelled = False
     try:
-        if response is not None:
-            response.close()
-            closed = True
+        if task is not None:
+            task.cancel()
+            cancelled = True
     except Exception:
         pass
-    return closed
+    return cancelled
 
 
 def clear_active_generation():
