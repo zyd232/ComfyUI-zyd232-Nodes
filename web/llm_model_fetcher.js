@@ -393,10 +393,39 @@ app.registerExtension({
                     }
 
                     if (node.setSize) node.setSize(node.size);
+
+                    // Switching to a different preset changes base_url/api_key, so
+                    // refresh the model list for the newly selected server. This is an
+                    // automatic refresh: on failure the Model fields keep their values.
+                    updateModelList();
                 };
             }
 
-            // ============ Model Fetching (existing logic, kept intact) ============
+            // ============ Model Fetching ============
+
+            // True when the current widget value is empty (no selection yet).
+            function isModelValueEmpty(value) {
+                return !value;
+            }
+
+            // When the LLM server cannot be reached, the Model Select / Text-Only
+            // Model Select dropdowns must show only "Fetch failed" and drop any
+            // previously cached model list, so the user is not misled into picking a
+            // model that is currently unavailable.
+            const FETCH_FAILED = "Fetch failed";
+            const FETCHING = "Fetching models...";
+            function setDropdownFailed(selectWidget) {
+                if (!selectWidget) return;
+                selectWidget.options.values = [FETCH_FAILED];
+                selectWidget.value = FETCH_FAILED;
+            }
+
+            // Show the transient "Fetching models..." state on a dropdown.
+            function setDropdownFetching(selectWidget) {
+                if (!selectWidget) return;
+                selectWidget.options.values = [FETCHING];
+                selectWidget.value = FETCHING;
+            }
 
             async function updateModelList() {
                 if (!baseUrlWidget.value) return;
@@ -404,8 +433,11 @@ app.registerExtension({
                     const originalModel = modelWidget ? modelWidget.value : "";
                     const originalNoVision = modelNoVisionWidget ? modelNoVisionWidget.value : "";
 
-                    if (modelWidget) modelWidget.value = "Fetching models...";
-                    if (modelNoVisionWidget) modelNoVisionWidget.value = "Fetching models...";
+                    // The "Fetching models..." state belongs on the dropdowns, not on
+                    // the Model / Text-Only Model fields. Those fields keep whatever
+                    // the user had selected throughout the fetch.
+                    setDropdownFetching(modelSelectWidget);
+                    setDropdownFetching(modelNoVisionSelectWidget);
 
                     // When api_key is masked, try to load the real key from current config
                     let resolvedApiKey = apiKeyWidget.value;
@@ -432,32 +464,50 @@ app.registerExtension({
                     if (data.success && data.models && data.models.length > 0) {
                         const comboValues = [MODEL_PLACEHOLDER, ...data.models];
 
-                        if (modelSelectWidget) modelSelectWidget.options.values = comboValues;
-                        if (modelNoVisionSelectWidget) modelNoVisionSelectWidget.options.values = comboValues;
+                        if (modelSelectWidget) {
+                            modelSelectWidget.options.values = comboValues;
+                            // Reset the displayed value so a previous "Fetch failed"
+                            // marker is replaced by the normal placeholder.
+                            modelSelectWidget.value = MODEL_PLACEHOLDER;
+                        }
+                        if (modelNoVisionSelectWidget) {
+                            modelNoVisionSelectWidget.options.values = comboValues;
+                            // Reset the displayed value so a previous "Fetch failed"
+                            // marker is replaced by the normal placeholder.
+                            modelNoVisionSelectWidget.value = MODEL_PLACEHOLDER;
+                        }
 
+                        // Keep whatever the user had selected. Only auto-pick the first
+                        // model when the field is empty (or holds a stale placeholder).
                         if (modelWidget) {
-                            if (data.models.includes(originalModel) && originalModel) {
-                                modelWidget.value = originalModel;
-                            } else {
+                            if (isModelValueEmpty(originalModel)) {
                                 modelWidget.value = data.models[0];
+                            } else {
+                                modelWidget.value = originalModel;
                             }
                         }
 
                         if (modelNoVisionWidget) {
-                            if (data.models.includes(originalNoVision) && originalNoVision) {
-                                modelNoVisionWidget.value = originalNoVision;
-                            } else {
+                            if (isModelValueEmpty(originalNoVision)) {
                                 modelNoVisionWidget.value = data.models[0];
+                            } else {
+                                modelNoVisionWidget.value = originalNoVision;
                             }
                         }
                     } else {
-                        if (modelWidget) modelWidget.value = "Fetch failed, check console";
-                        if (modelNoVisionWidget) modelNoVisionWidget.value = "Fetch failed, check console";
+                        // Fetch failed (network down, server unreachable, or empty list).
+                        // The dropdowns must not keep a stale cached list; show only
+                        // "Fetch failed" so the user knows the server is unreachable.
+                        // The Model / Text-Only Model fields are never touched here, so
+                        // they keep whatever the user had selected.
+                        setDropdownFailed(modelSelectWidget);
+                        setDropdownFailed(modelNoVisionSelectWidget);
                     }
                 } catch (error) {
                     console.error("[zyd232 LLM JS] Error fetching models:", error);
-                    if (modelWidget) modelWidget.value = $tSync("error.connecting");
-                    if (modelNoVisionWidget) modelNoVisionWidget.value = $tSync("error.connecting");
+                    setDropdownFailed(modelSelectWidget);
+                    setDropdownFailed(modelNoVisionSelectWidget);
+                    // The Model / Text-Only Model fields keep their original values.
                 }
             }
 
@@ -465,7 +515,9 @@ app.registerExtension({
                 const originalCallback = modelSelectWidget.callback;
                 modelSelectWidget.callback = function () {
                     const selectedValue = modelSelectWidget.value;
-                    if (selectedValue && selectedValue !== MODEL_PLACEHOLDER) {
+                    // Ignore the placeholder and the "Fetch failed" marker so they
+                    // never overwrite the user's model selection.
+                    if (selectedValue && selectedValue !== MODEL_PLACEHOLDER && selectedValue !== FETCH_FAILED) {
                         if (modelWidget) modelWidget.value = selectedValue;
                     }
                     modelSelectWidget.value = MODEL_PLACEHOLDER;
@@ -476,7 +528,9 @@ app.registerExtension({
             if (modelNoVisionSelectWidget) {
                 modelNoVisionSelectWidget.callback = function () {
                     const selectedValue = modelNoVisionSelectWidget.value;
-                    if (selectedValue && selectedValue !== MODEL_PLACEHOLDER) {
+                    // Ignore the placeholder and the "Fetch failed" marker so they
+                    // never overwrite the user's model selection.
+                    if (selectedValue && selectedValue !== MODEL_PLACEHOLDER && selectedValue !== FETCH_FAILED) {
                         if (modelNoVisionWidget) modelNoVisionWidget.value = selectedValue;
                     }
                     modelNoVisionSelectWidget.value = MODEL_PLACEHOLDER;

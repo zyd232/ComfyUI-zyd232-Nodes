@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import base64
 import re
@@ -19,33 +20,38 @@ import comfy.model_management
 import nodes
 
 from comfy_api.latest import io
-from comfy_execution.utils import get_executing_context
+
+# Load the shared streaming-events module. The nodes/ directory is not a Python
+# package (modules are loaded by file path in __init__.py), so import it by file
+# location and cache it in sys.modules to guarantee a single shared instance.
+import importlib.util as _ilu
+_SHARED_EVENTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "streaming_events.py")
+if "zyd232_streaming_events" not in sys.modules:
+    _spec = _ilu.spec_from_file_location("zyd232_streaming_events", _SHARED_EVENTS_PATH)
+    _mod = _ilu.module_from_spec(_spec)
+    sys.modules["zyd232_streaming_events"] = _mod
+    _spec.loader.exec_module(_mod)
+from zyd232_streaming_events import (  # noqa: E402
+    get_execution_scope,
+    push_stream_event,
+    get_active_generation,
+    register_active_generation,
+    set_active_response,
+    is_generation_stopped,
+    close_active_connection,
+    clear_active_generation,
+)
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE_DIR = os.path.join(PLUGIN_ROOT, "cache")
-CACHE_FILE = os.path.join(CACHE_DIR, "model_list.json")
 PRESET_DIR = os.path.join(PLUGIN_ROOT, "presets")
 PRESET_FILE = os.path.join(PRESET_DIR, "llm_text_generator_presets.json")
 
-os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(PRESET_DIR, exist_ok=True)
 
 # ======================= Active Generation Registry =======================
-# Tracks the currently running LLM generation so the Stop button (handled on the
-# aiohttp event-loop thread) can interrupt the streaming request that runs on
-# ComfyUI's execution thread. During streaming the response object is available,
-# so closing it makes execute()'s readline() raise and return the partial text.
-#
-# Structure:
-#   {
-#       "base_url": str,          # cleaned base url of the service
-#       "model": str,             # model actually being used
-#       "api_key": str,           # resolved api key
-#       "response": object,       # the active streaming urllib response (may be None)
-#       "stopped": bool,          # set to True once a stop has been requested
-#   }
-_active_generation = {}
-_active_generation_lock = threading.Lock()
+# The registry that lets the Stop button (aiohttp event-loop thread) interrupt
+# the streaming request running on ComfyUI's execution thread now lives in the
+# shared nodes/streaming_events.py module so other zyd232 nodes can reuse it.
 
 # ======================= Last-Generation Stopped State =======================
 # Tracks whether the most recent LLM generation was stopped (incomplete) rather
@@ -137,22 +143,6 @@ def sanitize_config_name(name):
         cleaned = "_" + cleaned
     return cleaned or "Default"
 
-def load_cached_models():
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            pass
-    return ["gpt-3.5-turbo", "gpt-4", "llava"]
-
-def save_cached_models(models_list):
-    try:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(models_list, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"[zyd232 LLM] Failed to save cache: {e}")
-
 # ======================= Configuration CRUD Helpers =======================
 
 def list_config_files():
@@ -229,7 +219,6 @@ async def fetch_models_endpoint(request):
             fetched_models = [item["id"] for item in data["data"] if "id" in item]
 
         if fetched_models:
-            save_cached_models(fetched_models)
             return web.json_response({"success": True, "models": fetched_models})
         return web.json_response({"success": False, "error": "No models found in response"})
     except Exception as e:
@@ -311,30 +300,10 @@ async def load_config_endpoint(request):
 
 
 # ======================= Streaming Event Helper =======================
-
-def _push_stream_event(node_id, content, reasoning_content, done=False, stopped=False, start=False):
-    """Push an incremental streaming-text chunk to the frontend over WebSocket.
-
-    The frontend listens for the ``zyd232/stream_text`` event and appends the
-    chunk to the matching LLM Generator node's display panel in real time.
-
-    ``node_id`` is the ComfyUI node id of the executing LLM Generator node, used
-    by the frontend to correlate the chunk to the correct node instance.
-
-    ``start`` marks the beginning of a new generation; the frontend clears any
-    previous content when it receives a ``start`` event.
-    """
-    try:
-        PromptServer.instance.send_sync("zyd232/stream_text", {
-            "node_id": node_id,
-            "content": content or "",
-            "reasoning_content": reasoning_content or "",
-            "done": bool(done),
-            "stopped": bool(stopped),
-            "start": bool(start),
-        })
-    except Exception as e:
-        print(f"[zyd232 LLM] Failed to push stream event: {e}")
+# The streaming-event push helper now lives in the shared
+# nodes/streaming_events.py module. It carries both node_id and prompt_id so the
+# frontend (web/tab_scope.js) can route chunks to the correct node in the correct
+# workflow tab:  scope = get_execution_scope(); push_stream_event(scope, ...).
 
 
 # ======================= Thinking Stream State Machine =======================
@@ -429,32 +398,6 @@ class _ThinkingStreamParser:
 
 # ======================= Stop Helper =======================
 
-def _close_active_connection():
-    """Close the active streaming response to interrupt the running generation.
-
-    During streaming, the response object is available (urlopen has returned and
-    we are reading lines). Closing it makes execute()'s readline() raise, which is
-    caught and reported as a user-initiated stop.
-
-    Returns True if a connection was actually closed, False otherwise.
-    """
-    with _active_generation_lock:
-        gen = _active_generation
-        if not gen:
-            return False
-        response = gen.get("response")
-        # Mark as stopped so execute() can detect the interruption.
-        gen["stopped"] = True
-        closed = False
-        try:
-            if response is not None:
-                response.close()
-                closed = True
-        except Exception:
-            pass
-        return closed
-
-
 @PromptServer.instance.routes.post("/zyd232/stop_generation")
 async def stop_generation_endpoint(request):
     """Stop the currently running LLM generation.
@@ -468,13 +411,12 @@ async def stop_generation_endpoint(request):
     (before_node_execution), which aborts the rest of the prompt.
     """
     try:
-        with _active_generation_lock:
-            gen = dict(_active_generation) if _active_generation else None
+        gen = get_active_generation()
 
         if not gen:
             return web.json_response({"success": False, "error": "No active generation to stop"})
 
-        closed = _close_active_connection()
+        closed = close_active_connection()
 
         # Record that this generation was stopped (incomplete) so that
         # fingerprint_inputs forces the node to re-run on the next execution.
@@ -852,15 +794,13 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             print("[zyd232 LLM] Result is locked; returning locked text without calling the LLM.")
             return io.NodeOutput(locked_text or "", locked_reasoning or "")
 
-        # --- Resolve the current node id so the frontend can correlate streamed
-        # text chunks to this specific node instance. ---
-        node_id = None
-        try:
-            executing_context = get_executing_context()
-            if executing_context is not None:
-                node_id = getattr(executing_context, "node_id", None)
-        except Exception:
-            node_id = None
+        # --- Resolve the execution scope (prompt_id + node_id) so the frontend
+        # can correlate streamed text chunks to this specific node instance AND
+        # to the workflow tab that queued this prompt. The prompt_id is what lets
+        # the frontend keep Streaming Text panels of same-id nodes in different
+        # workflow tabs isolated from each other (see web/tab_scope.js). ---
+        scope = get_execution_scope()
+        node_id = scope.get("node_id")
 
         # --- Resolve api_key: prefer stored config file; fall back to widget value ---
         resolved_api_key = api_key.strip() if api_key else ""
@@ -1053,22 +993,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         final_text = ""
 
         # --- Register the active generation so the Stop button can interrupt it ---
-        with _active_generation_lock:
-            _active_generation.update({
-                "base_url": clean_base_url,
-                "model": actual_model,
-                "api_key": actual_key,
-                "response": None,
-                "stopped": False,
-            })
-
-        def _clear_active_generation():
-            with _active_generation_lock:
-                _active_generation.clear()
-
-        def _is_stopped():
-            with _active_generation_lock:
-                return bool(_active_generation.get("stopped"))
+        register_active_generation({
+            "base_url": clean_base_url,
+            "model": actual_model,
+            "api_key": actual_key,
+        })
 
         def send_post(url, payload_dict, timeout_sec=timeout, push_done=True):
             """Send a streaming (SSE) chat completion request and accumulate the result.
@@ -1095,12 +1024,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 headers=headers, method='POST'
             )
             response = urllib.request.urlopen(req, timeout=timeout_sec)
-            with _active_generation_lock:
-                _active_generation["response"] = response
+            set_active_response(response)
             # Signal the start of a new generation so the frontend clears any
             # previous content before the first chunk arrives.
             if push_done:
-                _push_stream_event(node_id, "", "", start=True)
+                push_stream_event(scope, "", "", start=True)
             acc_text = ""
             acc_reasoning = ""
             # State machine that splits think-tagged reasoning out of the content
@@ -1130,7 +1058,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     # directly and push it as reasoning.
                     if delta_reasoning:
                         acc_reasoning += delta_reasoning
-                        _push_stream_event(node_id, "", delta_reasoning, done=False, stopped=False)
+                        push_stream_event(scope, "", delta_reasoning, done=False, stopped=False)
 
                     # For the content stream: when thinking is enabled and the API
                     # did not provide native reasoning, use the state machine to
@@ -1140,17 +1068,17 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                             content_part, reasoning_part = parser.feed(delta_text)
                             if content_part:
                                 acc_text += content_part
-                                _push_stream_event(node_id, content_part, "", done=False, stopped=False)
+                                push_stream_event(scope, content_part, "", done=False, stopped=False)
                             if reasoning_part:
                                 acc_reasoning += reasoning_part
-                                _push_stream_event(node_id, "", reasoning_part, done=False, stopped=False)
+                                push_stream_event(scope, "", reasoning_part, done=False, stopped=False)
                         else:
                             acc_text += delta_text
-                            _push_stream_event(node_id, delta_text, "", done=False, stopped=False)
+                            push_stream_event(scope, delta_text, "", done=False, stopped=False)
 
                     # If the Stop button was pressed, stop accumulating and return
                     # whatever text has been received so far.
-                    if _is_stopped():
+                    if is_generation_stopped():
                         break
 
                 # Flush any remaining buffered text from the state machine (e.g.
@@ -1159,24 +1087,23 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     content_part, reasoning_part = parser.flush()
                     if content_part:
                         acc_text += content_part
-                        _push_stream_event(node_id, content_part, "", done=False, stopped=False)
+                        push_stream_event(scope, content_part, "", done=False, stopped=False)
                     if reasoning_part:
                         acc_reasoning += reasoning_part
-                        _push_stream_event(node_id, "", reasoning_part, done=False, stopped=False)
+                        push_stream_event(scope, "", reasoning_part, done=False, stopped=False)
 
                 # Signal completion so the frontend can finalize the display. Only
                 # the actual LLM generation call (push_done=True) emits this event;
                 # unload requests reuse send_post but must not signal completion.
                 if push_done:
-                    _push_stream_event(node_id, "", "", done=True, stopped=_is_stopped())
+                    push_stream_event(scope, "", "", done=True, stopped=is_generation_stopped())
                 return acc_text, acc_reasoning
             finally:
                 try:
                     response.close()
                 except Exception:
                     pass
-                with _active_generation_lock:
-                    _active_generation["response"] = None
+                set_active_response(None)
 
         try:
             print(f"[zyd232 LLM] Sending request to {chat_url} with model: {actual_model}...")
@@ -1220,8 +1147,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         except Exception as e:
             # If the Stop button was pressed, the streaming connection was closed.
             # Return the text accumulated so far instead of a raw connection error.
-            with _active_generation_lock:
-                was_stopped = bool(_active_generation.get("stopped"))
+            was_stopped = is_generation_stopped()
             if was_stopped:
                 print("[zyd232 LLM] Generation stopped by user.")
                 # The streaming connection was closed by Stop, so the normal
@@ -1229,7 +1155,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 # Push a terminal done event here so the frontend resets its
                 # streaming state (otherwise the next generation would not clear
                 # the previous partial content).
-                _push_stream_event(node_id, "", "", done=True, stopped=True)
+                push_stream_event(scope, "", "", done=True, stopped=True)
             else:
                 final_text = f"Error: {e}"
                 reasoning = ""
@@ -1237,10 +1163,10 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             # Record whether this generation was stopped (incomplete) so that
             # fingerprint_inputs can force a re-run on the next execution. This
             # must be captured before clearing the active-generation registry.
-            _generation_was_stopped = _is_stopped()
+            _generation_was_stopped = is_generation_stopped()
             _set_last_generation_stopped(_generation_was_stopped)
             # Always clear the active generation registry once execution finishes.
-            _clear_active_generation()
+            clear_active_generation()
 
         full_unload_url = f"{clean_base_url}/{unload_endpoint.lstrip('/')}"
         full_llama_url = f"{clean_base_url}/{llama_endpoint.lstrip('/')}"

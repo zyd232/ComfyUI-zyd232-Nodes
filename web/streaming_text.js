@@ -20,6 +20,7 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { createFloatingWindow, makeTitleButton } from "./floating_window.js";
 import { loadTranslations, $tSync } from "./i18n.js";
+import { initTabScope, getCurrentTabKey, getPromptOwner, scopeKey } from "./tab_scope.js";
 
 // ============ Panel Geometry ============
 const PANEL_GAP = 12; // gap between the node's right edge and the panel
@@ -444,7 +445,9 @@ function renderText(node) {
 
 // ============ WebSocket Event Handling ============
 
-// Map of node_id -> node, so events can be routed to the correct instance.
+// Map of scopeKey(tabKey, nodeId) -> node, so events can be routed to the correct
+// instance. The composite (workflow-tab, node-id) key keeps same-id nodes in
+// different workflow tabs from overwriting each other.
 const nodeById = new Map();
 
 // Buffer of stream events that arrived while their target node was not present
@@ -452,6 +455,8 @@ const nodeById = new Map();
 // is unloaded by ComfyUI until the tab is activated). When the node is later
 // registered (onAdded/onConfigure/recreation), the buffered events are replayed
 // so the content that was streamed while the node was absent is not lost.
+// Keyed by scopeKey(tabKey, nodeId) so buffers of same-id nodes in different
+// workflow tabs never mix.
 const pendingEvents = new Map();
 
 // Snapshot of a node's streaming state (content/reasoning/streaming flags)
@@ -459,7 +464,28 @@ const pendingEvents = new Map();
 // non-active workflow tab, which would otherwise wipe the accumulated streaming
 // text. When the node is recreated (tab switched back), this snapshot is
 // restored onto the new node so previously streamed content is not lost.
+// Keyed by scopeKey(tabKey, nodeId) — snapshots are isolated per workflow tab,
+// so a same-id node in another tab can never restore someone else's content.
 const pendingState = new Map();
+
+// Determine which workflow tab an incoming stream event belongs to.
+// Preferred: the tab that queued the prompt (prompt_id -> tab, recorded at queue
+// time by web/tab_scope.js). Fallback for older backends whose events carry no
+// prompt_id: the currently active tab — i.e. the legacy node-id-only behaviour.
+function resolveEventTab(data) {
+    const owner = getPromptOwner(data && data.prompt_id);
+    if (owner) return owner;
+    return getCurrentTabKey();
+}
+
+// The workflow tab a node instance belongs to, recorded when it was registered.
+// Snapshots/buffers are keyed by this so that a removed node's state is attributed
+// to the tab it lived in — NOT whatever tab happens to be active at removal time
+// (during a tab switch, onRemoved of the old tab's nodes fires only after the
+// active-tab key has already been updated to the new tab).
+function getNodeTab(node) {
+    return node.__zyd232Tab || getCurrentTabKey();
+}
 
 // Find a node by id across the graphs that are currently loaded in the
 // frontend. This is a fallback for when a stream event arrives for a node that
@@ -507,8 +533,10 @@ function findNodeById(id) {
 // Restore a node's streaming state snapshot (captured when the node was removed
 // because its workflow tab was deactivated) onto a freshly recreated node. This
 // preserves content that was already accumulated before the node was destroyed.
+// Only the snapshot recorded for this node's own workflow tab is restored, so a
+// same-id node in another tab never picks up foreign content.
 function restorePendingState(node) {
-    const key = String(node.id);
+    const key = scopeKey(getNodeTab(node), node.id);
     const snap = pendingState.get(key);
     if (!snap) return;
     pendingState.delete(key);
@@ -526,7 +554,7 @@ function restorePendingState(node) {
 // frontend (e.g. its workflow tab was not active). Events are replayed in
 // arrival order so the start/chunk/done sequence reconstructs the full result.
 function replayPendingEvents(node) {
-    const key = String(node.id);
+    const key = scopeKey(getNodeTab(node), node.id);
     const events = pendingEvents.get(key);
     if (!events || events.length === 0) return;
     pendingEvents.delete(key);
@@ -536,22 +564,40 @@ function replayPendingEvents(node) {
 }
 
 function handleStreamEvent(data) {
-    let node = nodeById.get(String(data.node_id));
+    const tabKey = resolveEventTab(data);
+    const key = scopeKey(tabKey, data.node_id);
+    let node = nodeById.get(key);
     if (!node) {
-        // The node is not registered yet. Try to find it in the loaded graphs
-        // and register it on the fly so the streamed content is not dropped.
-        node = findNodeById(data.node_id);
-        if (node) {
-            nodeById.set(String(data.node_id), node);
-        } else {
-            // The node is not present in the frontend at all (its workflow tab
-            // is not active and ComfyUI has unloaded that graph). Buffer the
-            // event so it can be replayed once the node is registered again.
-            const key = String(data.node_id);
-            if (!pendingEvents.has(key)) pendingEvents.set(key, []);
-            pendingEvents.get(key).push(data);
-            return;
+        // The node is not registered under this (tab, id). If the event belongs to
+        // the currently active tab, the node may simply not be registered yet — try
+        // to find it in the loaded graph and register it on the fly so the streamed
+        // content is not dropped. If it belongs to a different tab, that tab's graph
+        // is not loaded (the current frontend keeps only the active tab's graph in
+        // memory), so no same-id node of another tab can be mistaken for the target;
+        // buffer the event instead.
+        if (tabKey === getCurrentTabKey()) {
+            node = findNodeById(data.node_id);
+            if (node) {
+                // Only adopt a found node when it is not already attributed to a
+                // different workflow tab (defensive: a stale instance from a
+                // previous graph load must never receive another tab's stream).
+                if (node.__zyd232Tab && node.__zyd232Tab !== tabKey) {
+                    node = null;
+                } else {
+                    if (!node.__zyd232Tab) node.__zyd232Tab = tabKey;
+                    nodeById.set(key, node);
+                }
+            }
         }
+    }
+    if (!node) {
+        // The node is not present in the frontend at all (its workflow tab is not
+        // active and ComfyUI has unloaded that graph). Buffer the event so it can be
+        // replayed once the node is registered again. Keyed by (tab, id) so buffers
+        // of same-id nodes in different tabs never mix.
+        if (!pendingEvents.has(key)) pendingEvents.set(key, []);
+        pendingEvents.get(key).push(data);
+        return;
     }
     const st = getState(node);
 
@@ -621,15 +667,24 @@ export function setupStreamingPanel(node) {
     // triggers auto_lock) depend on widget values like auto_lock.
     let configured = false;
     const registerNode = () => {
+        // A destroyed node (e.g. its workflow tab was deactivated) must never be
+        // re-registered: doing so would attribute its state to whatever tab is
+        // active now and could shadow the recreated same-id node's entry.
+        if (node.__zyd232Removed) return false;
         if (node.id != null && String(node.id) !== "-1") {
-            nodeById.set(String(node.id), node);
+            // Record the workflow tab this node instance belongs to. Registration
+            // happens during loadGraphData, after the tab-scope hook has updated
+            // the active-tab key, so this is exactly the tab being opened.
+            if (!node.__zyd232Tab) node.__zyd232Tab = getCurrentTabKey();
+            const key = scopeKey(node.__zyd232Tab, node.id);
+            nodeById.set(key, node);
             // Restore state and replay buffered events only once the node has
             // been configured (widgets restored). Before that, defer so that
             // widget-dependent logic in the replayed events sees correct values.
             if (configured) {
                 restorePendingState(node);
                 replayPendingEvents(node);
-            } else if (pendingState.has(String(node.id)) || pendingEvents.has(String(node.id))) {
+            } else if (pendingState.has(key) || pendingEvents.has(key)) {
                 // The node has pending state/events but has not been configured
                 // yet (onConfigure may not have fired). Retry shortly so the
                 // content is restored even if onConfigure is delayed or absent.
@@ -696,6 +751,18 @@ export function setupStreamingPanel(node) {
     // helper already removes the DOM panel via its own onRemoved hook.)
     const origRemoved = node.onRemoved ? node.onRemoved.bind(node) : null;
     node.onRemoved = function (...rest) {
+        // Mark as removed so the registration retry loop stops re-registering
+        // this (now dead) instance under whatever tab is active.
+        node.__zyd232Removed = true;
+        if (node.id == null || String(node.id) === "-1") {
+            if (origRemoved) return origRemoved(...rest);
+        }
+        // Key everything by the tab this node instance belonged to (recorded at
+        // registration), NOT the currently active tab: during a tab switch,
+        // onRemoved of the old tab's nodes fires only after the active-tab key
+        // has already been updated to the new tab. Using the recorded tab keeps
+        // snapshots and buffers isolated per workflow tab.
+        const key = scopeKey(getNodeTab(node), node.id);
         // Capture the current streaming state before the node is destroyed.
         // ComfyUI destroys nodes that live in a non-active workflow tab, which
         // would otherwise wipe the accumulated streaming text. Saving it here
@@ -704,7 +771,7 @@ export function setupStreamingPanel(node) {
         // stream, so we do not resurrect stale state for a freshly-cleared node.
         const st = getState(node);
         if (st.content || st.reasoning || st.streaming || st.lastDone) {
-            pendingState.set(String(node.id), {
+            pendingState.set(key, {
                 content: st.content,
                 reasoning: st.reasoning,
                 streaming: st.streaming,
@@ -712,10 +779,10 @@ export function setupStreamingPanel(node) {
                 locked: st.locked,
             });
         }
-        nodeById.delete(String(node.id));
+        nodeById.delete(key);
         // Drop any buffered events for this node so they are not replayed into
         // a stale/recreated instance later.
-        pendingEvents.delete(String(node.id));
+        pendingEvents.delete(key);
         if (origRemoved) return origRemoved(...rest);
     };
 }
@@ -730,6 +797,10 @@ function registerStreamListener() {
         handleStreamEvent(event.detail);
     });
 }
+
+// Initialize tab-scope isolation (hooks loadGraphData / queuePrompt). Idempotent
+// and guarded by a window singleton, so duplicate module loads are harmless.
+initTabScope();
 
 // Register immediately on module load.
 registerStreamListener();
