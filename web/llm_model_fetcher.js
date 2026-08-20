@@ -94,6 +94,31 @@ app.registerExtension({
             // Set up the streaming text display panel on the right side of the node.
             setupStreamingPanel(node);
 
+            // ============ Keep button widgets out of widgets_values ============
+            // ComfyUI recreates the dynamically-added button widgets when a
+            // workflow is loaded/pasted, and those recreated buttons end up with
+            // `serialize !== false`. That injects their values into the
+            // `widgets_values` array, shifting every later widget's index and
+            // making `comfy run` report a "widgets order mismatch with the
+            // server definition". Re-assert `serialize = false` on every
+            // configure so the buttons are always skipped during serialization.
+            //
+            // This wraps the INSTANCE onConfigure (which setupStreamingPanel
+            // above already assigned) so it runs AFTER streaming_text.js's own
+            // configure handling, guaranteeing the buttons are reset once the
+            // widget values have been restored.
+            const origNodeOnConfigure = node.onConfigure ? node.onConfigure.bind(node) : null;
+            node.onConfigure = function (...rest) {
+                const r = origNodeOnConfigure ? origNodeOnConfigure(...rest) : undefined;
+                const buttons = node.__zyd232Buttons;
+                if (Array.isArray(buttons)) {
+                    for (const b of buttons) {
+                        if (b) b.serialize = false;
+                    }
+                }
+                return r;
+            };
+
             // Hide the locked-result persistence widgets. These are declared in
             // the backend schema (use_locked, locked_text, locked_reasoning) and
             // are serialized into the workflow JSON and passed to execute(), but
@@ -310,21 +335,25 @@ app.registerExtension({
 
             // ---- Create button widgets using shared utilities ----
             // createMultiButtonRow returns an array of default button widgets (one per label).
-            createMultiButtonRow(
+            // We keep the returned widget objects so onConfigure can force their
+            // `serialize` back to false after a workflow reload (ComfyUI recreates
+            // these buttons with serialize !== false, which would otherwise inject
+            // their values into widgets_values and shift every later widget's index).
+            const saveDeleteBtns = createMultiButtonRow(
                 node,
                 [BTN_SAVE, BTN_DELETE],
                 [handleSaveConfig, handleDeleteConfig],
                 { name: "config_save_delete" }
             );
 
-            createFullWidthButton(
+            const refreshConfigBtn = createFullWidthButton(
                 node,
                 BTN_REFRESH_CONFIG,
                 refreshConfigCombo,
                 { name: "config_refresh" }
             );
 
-            createFullWidthButton(
+            const refreshModelBtn = createFullWidthButton(
                 node,
                 BTN_REFRESH_MODEL,
                 updateModelList,
@@ -334,7 +363,7 @@ app.registerExtension({
             // ============ Stop Generation Button ============
             // Closes the active streaming connection so the running generation returns
             // immediately with the text accumulated so far.
-            createFullWidthButton(
+            const stopBtn = createFullWidthButton(
                 node,
                 BTN_STOP,
                 async () => {
@@ -352,6 +381,15 @@ app.registerExtension({
                 },
                 { name: "stop_generation" }
             );
+
+            // Keep references to every button widget so onConfigure can re-assert
+            // serialize === false after ComfyUI recreates them on workflow load.
+            node.__zyd232Buttons = [
+                ...(Array.isArray(saveDeleteBtns) ? saveDeleteBtns : []),
+                refreshConfigBtn,
+                refreshModelBtn,
+                stopBtn,
+            ].filter(Boolean);
 
             // ---- Relocate the appended buttons to their intended positions ----
             // Save/Delete/Refresh Config right after config_name
