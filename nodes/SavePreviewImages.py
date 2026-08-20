@@ -16,8 +16,6 @@ def generate_random_name(prefix: str, suffix: str, length: int) -> str:
 class zyd232_SavePreviewImages(io.ComfyNode):
     """保存预览图片节点"""
 
-    prefix_append = ""
-
     @classmethod
     def define_schema(cls):
         return io.Schema(
@@ -57,15 +55,16 @@ class zyd232_SavePreviewImages(io.ComfyNode):
     @classmethod
     def execute(cls, images, custom_path, filename_prefix,
                 timestamp, format, quality, meta_data_png,
-                save_workflow_as_json, preview, save_image,
-                prompt=None, extra_pnginfo=None) -> io.NodeOutput:
+                save_workflow_as_json, preview, save_image) -> io.NodeOutput:
+        # V3 API: prompt/extra_pnginfo 通过 cls.hidden 注入，而非 execute 参数
+        prompt = getattr(cls.hidden, "prompt", None)
+        extra_pnginfo = getattr(cls.hidden, "extra_pnginfo", None)
         output_dir = folder_paths.get_output_directory()
         now = datetime.datetime.now()
         custom_path = custom_path.replace("%date", now.strftime("%Y-%m-%d"))
         custom_path = custom_path.replace("%time", now.strftime("%H-%M-%S"))
         filename_prefix = filename_prefix.replace("%date", now.strftime("%Y-%m-%d"))
         filename_prefix = filename_prefix.replace("%time", now.strftime("%H-%M-%S"))
-        filename_prefix += cls.prefix_append
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, output_dir, images[0].shape[1], images[0].shape[0])
         results = list()
         temp_dir = folder_paths.get_temp_directory()
@@ -111,6 +110,9 @@ class zyd232_SavePreviewImages(io.ComfyNode):
                     print(e)
 
             if custom_path != "":
+                # 将 filename_prefix 中的子目录拼接到 custom_path 后面
+                if subfolder:
+                    custom_path = os.path.join(custom_path, subfolder)
                 if not os.path.exists(custom_path):
                     try:
                         os.makedirs(custom_path)
