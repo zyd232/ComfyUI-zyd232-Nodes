@@ -40,6 +40,7 @@ from zyd232_streaming_events import (  # noqa: E402
     get_active_generation,
     register_active_generation,
     set_active_task,
+    clear_active_task,
     is_generation_stopped,
     cancel_active_task,
     clear_active_generation,
@@ -1290,7 +1291,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 # the previous partial content).
                 push_stream_event(scope, "", "", done=True, stopped=True)
             else:
-                final_text = f"Error: {e}"
+                # Do NOT surface the raw error text as a normal output: it would
+                # pollute downstream prompts (e.g. when consumed by another LLM).
+                # Log it for debugging and return empty text instead.
+                print(f"[zyd232 LLM] Generation failed: {e}")
+                final_text = ""
                 reasoning = ""
         finally:
             # Record whether this generation was stopped (incomplete) so that
