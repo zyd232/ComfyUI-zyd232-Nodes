@@ -99,21 +99,80 @@ app.registerExtension({
             // workflow is loaded/pasted, and those recreated buttons end up with
             // `serialize !== false`. That injects their values into the
             // `widgets_values` array, shifting every later widget's index and
-            // making `comfy run` report a "widgets order mismatch with the
-            // server definition". Re-assert `serialize = false` on every
-            // configure so the buttons are always skipped during serialization.
+            // making `comfy run` / comfy-mcp report a "widgets order mismatch
+            // with the server definition" (e.g. base_url lands on the model slot).
+            //
+            // Relying on the buttons' `serialize` flag is unreliable because
+            // ComfyUI resets it to `true` on reload. Instead we make the node's
+            // serialization bulletproof by overriding `serialize` to force every
+            // button to `serialize = false` for the duration of the call, so the
+            // buttons can NEVER enter `widgets_values` regardless of their flag
+            // state. This keeps the saved positional array aligned with the
+            // backend schema (base_url at index 2, model at index 5, ...).
+            const origSerialize = node.serialize ? node.serialize.bind(node) : null;
+            node.serialize = function (...args) {
+                const buttons = node.__zyd232Buttons || [];
+                const savedFlags = buttons.map(b => (b ? b.serialize : undefined));
+                for (const b of buttons) {
+                    if (b) b.serialize = false;
+                }
+                let result;
+                try {
+                    result = origSerialize ? origSerialize(...args) : undefined;
+                } finally {
+                    for (let i = 0; i < buttons.length; i++) {
+                        if (buttons[i]) buttons[i].serialize = savedFlags[i];
+                    }
+                }
+                return result;
+            };
+
+            // ============ Restore widget values by name (robust against index shift) ============
+            // ComfyUI restores widget values from the positional `widgets_values`
+            // array by iterating node.widgets in order and skipping serialize===false
+            // widgets. Because the buttons can end up serialize!==false after a
+            // reload, that positional restore misaligns every later widget. To be
+            // robust (including against workflows saved before this fix), we wrap
+            // `configure` to re-apply values by NAME from `widgets_values_named`
+            // when present, falling back to a name->position map over the array.
             //
             // This wraps the INSTANCE onConfigure (which setupStreamingPanel
             // above already assigned) so it runs AFTER streaming_text.js's own
-            // configure handling, guaranteeing the buttons are reset once the
+            // configure handling, guaranteeing the values are corrected once the
             // widget values have been restored.
             const origNodeOnConfigure = node.onConfigure ? node.onConfigure.bind(node) : null;
             node.onConfigure = function (...rest) {
                 const r = origNodeOnConfigure ? origNodeOnConfigure(...rest) : undefined;
-                const buttons = node.__zyd232Buttons;
-                if (Array.isArray(buttons)) {
-                    for (const b of buttons) {
-                        if (b) b.serialize = false;
+                const config = rest && rest[0];
+                if (config) {
+                    // Prefer the name-keyed map when ComfyUI provides it.
+                    const named = config.widgets_values_named;
+                    if (named && typeof named === "object") {
+                        for (const w of node.widgets) {
+                            if (w && w.name && named[w.name] !== undefined) {
+                                setWidgetValue(w, named[w.name]);
+                            }
+                        }
+                    } else if (Array.isArray(config.widgets_values)) {
+                        // Fall back to positional restore. The array may be either
+                        // correctly aligned (buttons excluded, produced by the
+                        // node.serialize override above) or a historical misaligned
+                        // one (buttons included, saved before this fix). Detect
+                        // which by comparing the array length to the number of
+                        // non-button widgets: if the array is longer, the buttons
+                        // were serialized in, so consume their entries too to keep
+                        // the schema widgets aligned.
+                        const wv = config.widgets_values;
+                        const nonButtonCount = node.widgets.filter(w => w && w.type !== "button").length;
+                        const includeButtons = wv.length > nonButtonCount;
+                        let w = 0;
+                        for (const widget of node.widgets) {
+                            if (!widget) continue;
+                            if (widget.type === "button" && !includeButtons) continue;
+                            if (w >= wv.length) break;
+                            setWidgetValue(widget, wv[w]);
+                            w++;
+                        }
                     }
                 }
                 return r;
@@ -335,10 +394,10 @@ app.registerExtension({
 
             // ---- Create button widgets using shared utilities ----
             // createMultiButtonRow returns an array of default button widgets (one per label).
-            // We keep the returned widget objects so onConfigure can force their
-            // `serialize` back to false after a workflow reload (ComfyUI recreates
-            // these buttons with serialize !== false, which would otherwise inject
-            // their values into widgets_values and shift every later widget's index).
+            // We keep the returned widget objects so the node.serialize override
+            // (see above) can force their `serialize` to false during serialization,
+            // guaranteeing they never enter widgets_values even though ComfyUI
+            // recreates them with serialize !== false after a workflow reload.
             const saveDeleteBtns = createMultiButtonRow(
                 node,
                 [BTN_SAVE, BTN_DELETE],
@@ -382,8 +441,9 @@ app.registerExtension({
                 { name: "stop_generation" }
             );
 
-            // Keep references to every button widget so onConfigure can re-assert
-            // serialize === false after ComfyUI recreates them on workflow load.
+            // Keep references to every button widget so the node.serialize
+            // override can force serialize === false during serialization, keeping
+            // them out of widgets_values even after ComfyUI recreates them on load.
             node.__zyd232Buttons = [
                 ...(Array.isArray(saveDeleteBtns) ? saveDeleteBtns : []),
                 refreshConfigBtn,
