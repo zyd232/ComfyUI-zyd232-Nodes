@@ -23,11 +23,13 @@ _llm_module = _load_node_module("LLMGeneratorV3.py")
 _images_module = _load_node_module("ImagesPixelsCompare.py")
 _mask_module = _load_node_module("MaskBatchBlend.py")
 _save_module = _load_node_module("SavePreviewImages.py")
+_merge_lora_module = _load_node_module("MergeLoraStacks.py")
 
 zyd232_LLMGeneratorV3 = _llm_module.zyd232_LLMGeneratorV3
 zyd232_ImagesPixelsCompare = _images_module.zyd232_ImagesPixelsCompare
 zyd232_MaskBatchBlend = _mask_module.zyd232_MaskBatchBlend
 zyd232_SavePreviewImages = _save_module.zyd232_SavePreviewImages
+zyd232_MergeLoraStacks = _merge_lora_module.zyd232_MergeLoraStacks
 
 
 class Zyd232Extension(ComfyExtension):
@@ -39,6 +41,7 @@ class Zyd232Extension(ComfyExtension):
             zyd232_ImagesPixelsCompare,
             zyd232_MaskBatchBlend,
             zyd232_SavePreviewImages,
+            zyd232_MergeLoraStacks,
         ]
 
 

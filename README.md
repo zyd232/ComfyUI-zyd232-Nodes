@@ -31,6 +31,7 @@ Restart ComfyUI. The nodes will appear under the **zyd232 Nodes** category.
 | **Images Pixels Compare** | `zyd232 Nodes` | Compare two images at the pixel level to check if they are identical; outputs a boolean. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Images-Pixels-Compare) |
 | **Save Preview Images** | `zyd232 Nodes` | Save images (PNG/JPG) with quality, metadata, custom path, workflow JSON, and preview options. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Save-Preview-Images) |
 | **Mask Batch Blend** | `zyd232 Nodes` | Blend multiple masks into one using add / max / average operations. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Mask-Batch-Blend) |
+| **Merge LoRA Stacks** | `zyd232 Nodes` | Merge multiple lora_stack inputs into a single lora_stack output. The left-side inputs are dynamic (Autogrow) and can be added freely. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Merge-LoRA-Stacks) |
 
 ---
 

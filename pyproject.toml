@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-zyd232-nodes"
-description = "ComfyUI nodes including LLM text generation for any LLM server (multiple image/video/audio input, preset management, hide API-key, clean VRAM, auto-unload), image pixel comparison, and other nodes for quality-of-life improvements."
-version = "0.9.0"
+description = "ComfyUI nodes including LLM Text Generation for any LLM server (multiple image/video/audio input, preset management, hide API-key, clean VRAM, auto-unload), Merge LoRA Stacks, Image Pixel Comparison, and other nodes for quality-of-life improvements."
+version = "0.9.1"
 license = { file = "LICENSE" }
 
 [project.urls]

@@ -31,6 +31,7 @@ git clone https://github.com/zyd232/ComfyUI-zyd232-Nodes.git
 | **Images Pixels Compare** | `zyd232 Nodes` | 像素级比较两张图片是否完全相同，输出布尔值 | [📄 文档](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Images-Pixels-Compare-简中) |
 | **Save Preview Images** | `zyd232 Nodes` | 保存图片（PNG/JPG），支持质量、元数据、自定义路径、工作流 JSON 与预览 | [📄 文档](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Save-Preview-Images-简中) |
 | **Mask Batch Blend** | `zyd232 Nodes` | 将多个 Mask 通过 add / max / average 操作合并为一个 | [📄 文档](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Mask-Batch-Blend-简中) |
+| **Merge LoRA Stacks** | `zyd232 Nodes` | 将多个 lora_stack 输入合并为一个 lora_stack 输出，左侧输入可动态增加 | [📄 文档](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Merge-LoRA-Stacks-简中) |
 
 ---
 
