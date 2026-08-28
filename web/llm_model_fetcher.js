@@ -5,6 +5,7 @@ import { setupStreamingPanel } from "./streaming_text.js";
 import { loadTranslations, $tSync } from "./i18n.js";
 
 let MODEL_PLACEHOLDER = "Choose a model from the list";
+let REASONING_EFFORT_PLACEHOLDER = "Choose reasoning effort";
 const API_KEY_MASKED = "********";
 const CONFIG_DEFAULT = "Default";
 
@@ -36,7 +37,8 @@ const SAVED_WIDGETS = [
     "seed",
     "context_length",
     "timeout",
-    "thinking",
+    "reasoning_effort",
+    "separate_thinking",
     "think_start_tag",
     "think_end_tag",
     "clean_comfy_vram_before_gen",
@@ -76,6 +78,7 @@ app.registerExtension({
         // Preload translations so onNodeCreated can use $tSync() synchronously.
         await loadTranslations();
         MODEL_PLACEHOLDER = $tSync("model.placeholder");
+        REASONING_EFFORT_PLACEHOLDER = $tSync("reasoningEffort.placeholder");
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -215,6 +218,8 @@ app.registerExtension({
             const modelNoVisionWidget = node.widgets.find(w => w.name === "model_NoVision");
             const modelSelectWidget = node.widgets.find(w => w.name === "model_select");
             const modelNoVisionSelectWidget = node.widgets.find(w => w.name === "model_NoVision_select");
+            const reasoningEffortWidget = node.widgets.find(w => w.name === "reasoning_effort");
+            const reasoningEffortSelectWidget = node.widgets.find(w => w.name === "reasoning_effort_select");
 
             // ---- Configuration management widgets ----
             const configSelectWidget = node.widgets.find(w => w.name === "config_select");
@@ -632,6 +637,18 @@ app.registerExtension({
                         if (modelNoVisionWidget) modelNoVisionWidget.value = selectedValue;
                     }
                     modelNoVisionSelectWidget.value = MODEL_PLACEHOLDER;
+                    if (node.setSize) node.setSize(node.size);
+                };
+            }
+
+            if (reasoningEffortSelectWidget) {
+                reasoningEffortSelectWidget.callback = function () {
+                    const selectedValue = reasoningEffortSelectWidget.value;
+                    // Ignore the placeholder so it never overwrites the user's value.
+                    if (selectedValue && selectedValue !== REASONING_EFFORT_PLACEHOLDER) {
+                        if (reasoningEffortWidget) reasoningEffortWidget.value = selectedValue;
+                    }
+                    reasoningEffortSelectWidget.value = REASONING_EFFORT_PLACEHOLDER;
                     if (node.setSize) node.setSize(node.size);
                 };
             }

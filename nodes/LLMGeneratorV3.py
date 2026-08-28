@@ -115,7 +115,8 @@ SAVED_FIELDS = [
     "seed",
     "context_length",
     "timeout",
-    "thinking",
+    "reasoning_effort",
+    "separate_thinking",
     "think_start_tag",
     "think_end_tag",
     "clean_comfy_vram_before_gen",
@@ -282,7 +283,9 @@ async def delete_config_endpoint(request):
         if safe_name == "Default":
             return web.json_response({"success": False, "error": "Cannot delete the Default preset"})
 
-        if not os.path.isfile(os.path.join(PRESET_DIR, f"{safe_name}.json")):
+        # Configs are stored as keys inside the single PRESET_FILE, not as
+        # separate {name}.json files, so check the preset store directly.
+        if load_config_file(safe_name) is None:
             return web.json_response({"success": False, "error": "Config not found"})
 
         success = delete_config_file(safe_name)
@@ -521,7 +524,7 @@ def _send_stop_command_async(base_url, model, headers, timeout_sec=3):
 
 
 async def _stream_async(url, payload, headers, scope,
-                        think_start_tag, think_end_tag, thinking, push_done):
+                        think_start_tag, think_end_tag, separate_thinking, push_done):
     """Asynchronously send a streaming (SSE) chat completion request and accumulate
     the result.
 
@@ -535,7 +538,7 @@ async def _stream_async(url, payload, headers, scope,
     """
     acc_text = ""
     acc_reasoning = ""
-    parser = _ThinkingStreamParser(think_start_tag, think_end_tag) if thinking else None
+    parser = _ThinkingStreamParser(think_start_tag, think_end_tag) if separate_thinking else None
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers) as resp:
@@ -679,8 +682,22 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     tooltip="Timeout in seconds for the LLM generation request"),
 
                 # --- Extended features (static, fixed array indices) --- #
-                io.Boolean.Input("thinking", default=False, label_on="Enable", label_off="Disable",
-                    display_name="Thinking",
+                # Reasoning effort: a dropdown (reasoning_effort_select) that fills
+                # the free-text field (reasoning_effort). The dropdown options stay
+                # English in every UI language; the free-text field accepts any
+                # custom string. The value is sent to the server inside
+                # chat_template_kwargs (and mirrored at the top level as a
+                # fallback), which requires the LLM server to enable its Jinja
+                # template.
+                io.Combo.Input("reasoning_effort_select",
+                    options=["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+                    display_name="Reasoning Effort Select",
+                    tooltip="Dropdown to pick a reasoning effort. Selection will fill the 'reasoning_effort' field below."),
+                io.String.Input("reasoning_effort", default="",
+                    display_name="Reasoning Effort",
+                    tooltip="Reasoning effort sent to the server (requires the LLM server to enable its Jinja template). Can be typed manually or selected from the dropdown above. 'off'/'none' disables thinking."),
+                io.Boolean.Input("separate_thinking", default=False, label_on="Enable", label_off="Disable",
+                    display_name="Separate Thinking",
                     tooltip="Separate AI's thinking process from final answer"),
                 io.String.Input("think_start_tag", default="<think>",
                     display_name="Think Start Tag",
@@ -941,7 +958,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 model_select, model, model_NoVision_select, model_NoVision,
                 system_prompt, user_prompt,
                 temperature, top_k, seed, context_length, timeout,
-                thinking, think_start_tag, think_end_tag,
+                reasoning_effort_select, reasoning_effort, separate_thinking, think_start_tag, think_end_tag,
                 clean_comfy_vram_before_gen,
                 unload_after_gen, unload_endpoint,
                 llama_cpp_unload, llama_endpoint,
@@ -1030,13 +1047,13 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         messages = []
 
         adjusted_system_prompt = system_prompt
-        if not thinking:
+        if not separate_thinking:
             extra_instruction = " Please provide the direct answer immediately. Do NOT output any thinking process or internal reasoning."
             adjusted_system_prompt = system_prompt + extra_instruction if system_prompt.strip() else extra_instruction
         else:
-            # When thinking is enabled, instruct the model to wrap its internal
-            # reasoning in the configured think tags so the streaming state
-            # machine can separate it from the final answer in real time.
+            # When separate_thinking is enabled, instruct the model to wrap its
+            # internal reasoning in the configured think tags so the streaming
+            # state machine can separate it from the final answer in real time.
             think_instruction = (
                 f" Please put your internal reasoning/thinking process inside "
                 f"{think_start_tag} and {think_end_tag} tags, then provide the "
@@ -1187,8 +1204,32 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             payload["num_ctx"] = context_length
             payload["n_ctx"] = context_length
 
-        if not thinking:
+        if not separate_thinking:
             payload["thinking_config"] = {"mode": "none"}
+
+        # --- Reasoning effort (dual-insurance) ---
+        # Derive enable_thinking from the reasoning_effort value: 'off'/'none'
+        # disables thinking, any other value enables it. The control parameters
+        # are wrapped inside chat_template_kwargs (required by llama.cpp / older
+        # vLLM) AND mirrored at the top level (vLLM / OpenAI native spec) as a
+        # fallback. This requires the LLM server to enable its Jinja template.
+        effort_raw = (reasoning_effort or "").strip().lower()
+        if effort_raw in ("", "off", "none"):
+            enable_thinking = False
+            effort_value = "none" if effort_raw in ("off", "none") else ""
+        else:
+            enable_thinking = True
+            effort_value = effort_raw
+
+        if effort_value or not enable_thinking:
+            payload["chat_template_kwargs"] = {
+                "reasoning_effort": effort_value or "none",
+                "enable_thinking": enable_thinking,
+            }
+            # Top-level mirror (vLLM / OpenAI native spec + older vLLM fallback)
+            payload["reasoning_effort"] = effort_value or "none"
+            payload["enable_thinking"] = enable_thinking
+
         if seed != -1: payload["seed"] = seed
         if cache_prompt:
             payload["cache_prompt"] = True
@@ -1225,7 +1266,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             """
             future = asyncio.run_coroutine_threadsafe(
                 _stream_async(url, payload_dict, headers, scope,
-                              think_start_tag, think_end_tag, thinking, push_done),
+                              think_start_tag, think_end_tag, separate_thinking, push_done),
                 loop
             )
             set_active_task(future)
@@ -1269,7 +1310,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             pattern = f"{escaped_start}(.*?){escaped_end}"
             match = re.search(pattern, full_text, re.DOTALL)
 
-            if thinking:
+            if separate_thinking:
                 if not reasoning and match:
                     reasoning = match.group(1).strip()
                     final_text = re.sub(pattern, "", full_text, flags=re.DOTALL).strip()

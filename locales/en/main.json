@@ -1,6 +1,7 @@
 {
     "ui": {
         "model.placeholder": "Choose a model from the list",
+        "reasoningEffort.placeholder": "Choose reasoning effort",
         "button.saveConfig": "💾 Save Config & Hide API",
         "button.deleteConfig": "🗑 Delete Config",
         "button.refreshConfig": "🔄 Refresh Config List",

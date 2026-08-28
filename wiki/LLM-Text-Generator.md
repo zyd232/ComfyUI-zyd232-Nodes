@@ -26,6 +26,7 @@ The **LLM Text Generator** node connects to any **OpenAI-compatible** LLM servic
 - [Multimodal Inputs (Images / Videos / Audio)](#multimodal-inputs-images--videos--audio)
 - [Streaming Text Display](#streaming-text-display)
 - [Lock Result](#lock-result)
+- [Reasoning Effort](#reasoning-effort)
 - [Thinking / Reasoning Mode](#thinking--reasoning-mode)
 - [Other Parameters Quick Reference](#other-parameters-quick-reference)
 
@@ -177,11 +178,32 @@ This means: when the LLM-generated text is consumed by downstream nodes (e.g. te
 
 ---
 
+## Reasoning Effort
+
+Control how much the model "thinks" before answering. This is especially useful for reasoning models (e.g. Qwen3) deployed locally with llama.cpp / vLLM, which can otherwise over-think and produce long, verbose reasoning.
+
+- **reasoning_effort_select** — Dropdown to pick a reasoning effort: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Selecting an option fills the **reasoning_effort** field below, then the dropdown resets to its placeholder. The option values stay English in every UI language.
+- **reasoning_effort** — Free-text field for the reasoning effort sent to the server. You can type any custom string, or pick from the dropdown above.
+
+> ⚠️ **Requires the LLM server to enable its Jinja template.** The control parameters are sent inside `chat_template_kwargs` (required by llama.cpp / older vLLM) and mirrored at the top level (vLLM / OpenAI native spec) as a fallback.
+
+### Value mapping
+
+| `reasoning_effort` value | `enable_thinking` sent to server | `reasoning_effort` sent to server |
+|--------------------------|----------------------------------|-----------------------------------|
+| *(empty)*                | *(not sent — server default)*    | *(not sent)*                      |
+| `off` / `none`           | `false`                          | `none`                            |
+| `minimal` … `max` or any custom string | `true`            | the value itself                  |
+
+> If your backend does not support these template parameters (e.g. older Ollama) and returns a `400 Bad Request (Unknown parameter)` error, update the server or suppress thinking via the System Prompt instead.
+
+---
+
 ## Thinking / Reasoning Mode
 
-Enable **thinking** to separate the model's reasoning chain from its final answer. Uses custom tags (`<think>` / `</think>` by default). Reasoning goes to the `reasoning` output, the answer to the `text` output.
+Enable **separate_thinking** to separate the model's reasoning chain from its final answer. Uses custom tags (`<think>` / `</think>` by default). Reasoning goes to the `reasoning` output, the answer to the `text` output.
 
-- **thinking** — Enable/disable thinking mode.
+- **separate_thinking** — Enable/disable separating the thinking process from the final answer.
 - **think_start_tag** — Opening tag to mark the start of thinking content (default `<think>`).
 - **think_end_tag** — Closing tag to mark the end of thinking content (default `</think>`).
 

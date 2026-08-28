@@ -1,6 +1,7 @@
 {
     "ui": {
         "model.placeholder": "从列表中选择模型",
+        "reasoningEffort.placeholder": "选择推理强度",
         "button.saveConfig": "💾 保存配置并隐藏 API",
         "button.deleteConfig": "🗑 删除配置",
         "button.refreshConfig": "🔄 刷新配置列表",
