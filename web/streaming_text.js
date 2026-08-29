@@ -38,6 +38,7 @@ function getState(node) {
             collapsed: false,     // whether the panel is collapsed
             streaming: false,     // whether a generation is in progress
             lastDone: false,      // whether the last generation finished
+            error: "",            // error description when the last generation failed
             locked: false,        // whether the displayed result is locked
             win: null,            // the floating-window controller
             textEl: null,         // the text content element
@@ -251,6 +252,7 @@ function createPanel(node) {
             st.reasoning = "";
             st.lastDone = false;
             st.streaming = false;
+            st.error = "";
             renderText(node);
         });
 
@@ -325,6 +327,7 @@ function syncLockedState(node) {
         st.reasoning = (w.lockedReasoning && w.lockedReasoning.value) || "";
         st.lastDone = true;
         st.streaming = false;
+        st.error = "";
         renderText(node);
     }
 }
@@ -373,6 +376,7 @@ function applyLockedState(node, locked, text, reasoning) {
     st.reasoning = reasoning || "";
     st.lastDone = true;
     st.streaming = false;
+    st.error = "";
     if (st.lockBtn) {
         st.lockBtn.textContent = locked ? "🔒" : "🔓";
         st.lockBtn.title = locked ? $tSync("tooltip.unlock") : $tSync("tooltip.lock");
@@ -396,7 +400,20 @@ function renderText(node) {
     const hasReasoning = st.showReasoning && st.reasoning;
     const hasContent = !!st.content;
 
-    if (!hasReasoning && !hasContent) {
+    // Error: show the error description prominently in red instead of a result.
+    if (st.error) {
+        const errHeader = document.createElement("div");
+        errHeader.style.color = "#e53935";
+        errHeader.style.fontWeight = "bold";
+        errHeader.textContent = $tSync("header.error");
+        st.textEl.appendChild(errHeader);
+
+        const errBody = document.createElement("div");
+        errBody.style.color = "#e53935";
+        errBody.style.whiteSpace = "pre-wrap";
+        errBody.textContent = st.error;
+        st.textEl.appendChild(errBody);
+    } else if (!hasReasoning && !hasContent) {
         const placeholder = document.createElement("div");
         placeholder.style.color = "#666";
         placeholder.textContent = $tSync("status.waiting");
@@ -436,10 +453,15 @@ function renderText(node) {
 
     // Update status
     if (st.statusEl) {
-        st.statusEl.textContent = st.streaming
-            ? $tSync("status.streaming")
-            : (st.lastDone ? $tSync("status.done") : $tSync("status.idle"));
-        st.statusEl.style.color = st.streaming ? "#4caf50" : "#888";
+        if (st.error) {
+            st.statusEl.textContent = $tSync("status.error");
+            st.statusEl.style.color = "#e53935";
+        } else {
+            st.statusEl.textContent = st.streaming
+                ? $tSync("status.streaming")
+                : (st.lastDone ? $tSync("status.done") : $tSync("status.idle"));
+            st.statusEl.style.color = st.streaming ? "#4caf50" : "#888";
+        }
     }
 }
 
@@ -546,6 +568,7 @@ function restorePendingState(node) {
     st.streaming = !!snap.streaming;
     st.lastDone = !!snap.lastDone;
     st.locked = !!snap.locked;
+    st.error = snap.error || "";
     renderText(node);
 }
 
@@ -612,11 +635,21 @@ function handleStreamEvent(data) {
         if (data.stopped) {
             st.lastDone = false;
         }
+        // Error: the generation failed. Record the error description so the
+        // panel shows an Error status and the message instead of a normal result.
+        // An errored generation is neither "done" nor "stopped".
+        if (data.error) {
+            st.error = data.error;
+            st.lastDone = false;
+        } else {
+            st.error = "";
+        }
         // Auto-lock: when the "auto_lock" toggle is enabled and the generation
-        // completed successfully (not stopped), automatically lock the result so
-        // it is persisted into the workflow and the LLM is skipped on the next
-        // run. A stopped (incomplete) generation is never auto-locked.
-        if (!data.stopped && !st.locked && isAutoLockEnabled(node)) {
+        // completed successfully (not stopped/errored), automatically lock the
+        // result so it is persisted into the workflow and the LLM is skipped on
+        // the next run. A stopped/errored (incomplete) generation is never
+        // auto-locked.
+        if (!data.stopped && !data.error && !st.locked && isAutoLockEnabled(node)) {
             lockResult(node);
         }
         renderText(node);
@@ -631,6 +664,7 @@ function handleStreamEvent(data) {
     if (data.start) {
         st.streaming = true;
         st.lastDone = false;
+        st.error = "";
         st.content = "";
         st.reasoning = "";
         renderText(node);
@@ -770,13 +804,14 @@ export function setupStreamingPanel(node) {
         // back. Only save when there is meaningful content or an in-progress
         // stream, so we do not resurrect stale state for a freshly-cleared node.
         const st = getState(node);
-        if (st.content || st.reasoning || st.streaming || st.lastDone) {
+        if (st.content || st.reasoning || st.streaming || st.lastDone || st.error) {
             pendingState.set(key, {
                 content: st.content,
                 reasoning: st.reasoning,
                 streaming: st.streaming,
                 lastDone: st.lastDone,
                 locked: st.locked,
+                error: st.error,
             });
         }
         nodeById.delete(key);

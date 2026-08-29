@@ -20,12 +20,14 @@ def _load_node_module(filename: str):
 
 
 _llm_module = _load_node_module("LLMGeneratorV3.py")
+_llm_unload_module = _load_node_module("LLMUnload.py")
 _images_module = _load_node_module("ImagesPixelsCompare.py")
 _mask_module = _load_node_module("MaskBatchBlend.py")
 _save_module = _load_node_module("SavePreviewImages.py")
 _merge_lora_module = _load_node_module("MergeLoraStacks.py")
 
 zyd232_LLMGeneratorV3 = _llm_module.zyd232_LLMGeneratorV3
+zyd232_LLMUnload = _llm_unload_module.zyd232_LLMUnload
 zyd232_ImagesPixelsCompare = _images_module.zyd232_ImagesPixelsCompare
 zyd232_MaskBatchBlend = _mask_module.zyd232_MaskBatchBlend
 zyd232_SavePreviewImages = _save_module.zyd232_SavePreviewImages
@@ -38,6 +40,7 @@ class Zyd232Extension(ComfyExtension):
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
             zyd232_LLMGeneratorV3,
+            zyd232_LLMUnload,
             zyd232_ImagesPixelsCompare,
             zyd232_MaskBatchBlend,
             zyd232_SavePreviewImages,

@@ -25,9 +25,9 @@
             "think_end_tag": { "name": "Think End Tag", "tooltip": "Closing tag to mark the end of thinking content" },
             "clean_comfy_vram_before_gen": { "name": "Clean VRAM Before Gen", "tooltip": "Clear ComfyUI VRAM before generation to avoid OOM" },
             "unload_after_gen": { "name": "Unload After Gen", "tooltip": "Unload model after generation to free VRAM" },
-            "unload_endpoint": { "name": "Unload Endpoint", "tooltip": "API endpoint path for unloading the model" },
-            "llama_cpp_unload": { "name": "llama.cpp Unload", "tooltip": "Unload model via llama.cpp-specific endpoint" },
-            "llama_endpoint": { "name": "llama.cpp Endpoint", "tooltip": "llama.cpp unload API endpoint path" },
+            "unload_endpoint": { "name": "Unload Endpoint", "tooltip": "API endpoint path for unloading the model. 'auto' uses the endpoint preset for the selected Server Type; a custom value is used as-is" },
+            "unload_timeout": { "name": "Unload Timeout", "tooltip": "Max seconds to wait for the server to finish unloading. Uses a hybrid strategy: sends the unload request synchronously, then polls /v1/models to confirm the model is released, preventing downstream nodes from OOMing while the server is still unloading. The timeout prevents the node from blocking the workflow indefinitely if the server is slow." },
+            "server_type": { "name": "Server Type", "tooltip": "LLM server type. Determines how unload, reasoning_effort and payload are sent to the server. 'auto' probes the server automatically" },
             "cache_prompt": { "name": "Cache Prompt", "tooltip": "Cache prompts to speed up repeated requests" },
             "auto_lock": { "name": "Auto Lock", "tooltip": "When enabled, the Streaming Text panel automatically locks the result once generation completes" },
             "video_fps": { "name": "Video FPS", "tooltip": "Sampling density per reference video. Assumes the source video is 24fps: keeps video_fps frames per 24 source frames (n = total * video_fps/24), then capped by max_video_frames. Default 1.0." },
@@ -36,6 +36,19 @@
             "use_locked": { "name": "Use Locked", "tooltip": "When true, skip LLM generation and return the locked result" },
             "locked_text": { "name": "Locked Text", "tooltip": "Locked final text returned when use_locked is true" },
             "locked_reasoning": { "name": "Locked Reasoning", "tooltip": "Locked reasoning text returned when use_locked is true" }
+        }
+    },
+    "zyd232 LLMUnload": {
+        "display_name": "LLM Unload",
+        "description": "Send an unload signal to the LLM Server to release the model from VRAM. All parameters come from the config preset saved by the LLM Text Generator node. Before using this node, first confirm that the LLM Text Generator node's configuration can run 'Unload After Gen' correctly, because this node's proper operation relies on the parameters stored in the config preset being correctly configured. Acts like a reroute: the any input is passed through unchanged to the any output.",
+        "inputs": {
+            "config_select": { "name": "Config Preset", "tooltip": "Choose a saved server preset. All unload parameters (base_url, api_key, model, server_type, unload_endpoint, unload_timeout) are read from this preset, which is saved by the LLM Text Generator node." },
+            "model_select": { "name": "Model Select", "tooltip": "Dropdown to select the model to unload. Selection fills the 'model' field below." },
+            "model": { "name": "Model", "tooltip": "Model name to unload (free input). Can be typed manually or selected from the dropdown above. Leave empty to fall back to the model stored in the config preset." },
+            "any_input": { "name": "Any Input", "tooltip": "Optional. Any value passed through unchanged. Lets this node be inserted anywhere in the workflow." }
+        },
+        "outputs": {
+            "any_output": { "name": "Any Output", "tooltip": "The input value passed through unchanged." }
         }
     },
     "zyd232 ImagesPixelsCompare": {

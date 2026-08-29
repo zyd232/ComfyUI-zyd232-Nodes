@@ -3,6 +3,7 @@ import { api } from "../../../scripts/api.js";
 import { createFullWidthButton, createMultiButtonRow } from "./button_utils.js";
 import { setupStreamingPanel } from "./streaming_text.js";
 import { loadTranslations, $tSync } from "./i18n.js";
+import { loadConfig, fetchModels, setDropdownFetching as setDropdownFetchingShared, setDropdownFailed as setDropdownFailedShared } from "./llm_model_utils.js";
 
 let MODEL_PLACEHOLDER = "Choose a model from the list";
 let REASONING_EFFORT_PLACEHOLDER = "Choose reasoning effort";
@@ -44,8 +45,8 @@ const SAVED_WIDGETS = [
     "clean_comfy_vram_before_gen",
     "unload_after_gen",
     "unload_endpoint",
-    "llama_cpp_unload",
-    "llama_endpoint",
+    "unload_timeout",
+    "server_type",
     "cache_prompt",
     "auto_lock",
     "video_fps",
@@ -70,6 +71,19 @@ function setWidgetValue(widget, value) {
     }
 }
 
+// server_type -> unload_endpoint 预设值映射。选择 server_type 时，unload_endpoint
+// 自动填入对应预设值；'auto' 表示由后端根据探测结果决定。
+const UNLOAD_ENDPOINT_PRESETS = {
+    "auto": "auto",
+    "openai": "",
+    "vllm": "/v1/models/unload",
+    "llama.cpp": "/models/unload",
+    "ollama": "/api/generate",
+};
+
+// 所有已知的 unload_endpoint 预设值（用于判断当前值是否为预设，从而决定是否刷新）
+const KNOWN_UNLOAD_ENDPOINTS = ["auto", "/v1/models/unload", "/models/unload", "/api/generate"];
+
 app.registerExtension({
     name: "zyd232.LLMModelFetcher",
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -93,6 +107,21 @@ app.registerExtension({
             // Capture the node instance. Regular functions and widget callbacks
             // below do NOT have `this` bound to the node, so we use `node` instead.
             const node = this;
+
+            // Capture each widget's schema default value at creation time. At this
+            // point (onNodeCreated) the widgets have just been created from the
+            // backend schema with their default values, BEFORE ComfyUI restores any
+            // saved workflow values via onConfigure. We store these so that when a
+            // config preset is loaded and a key is missing (e.g. an old preset saved
+            // before a parameter existed), we can reset that widget to its true
+            // schema default instead of leaving whatever placeholder/current value
+            // it happens to hold.
+            node.__zyd232WidgetDefaults = {};
+            for (const w of node.widgets) {
+                if (w && w.name) {
+                    node.__zyd232WidgetDefaults[w.name] = w.value;
+                }
+            }
 
             // Set up the streaming text display panel on the right side of the node.
             setupStreamingPanel(node);
@@ -178,6 +207,9 @@ app.registerExtension({
                         }
                     }
                 }
+                // Re-localize the Reasoning Effort Select placeholder after values
+                // are restored (a workflow may have saved the English placeholder).
+                localizeReasoningEffortSelect();
                 return r;
             };
 
@@ -225,6 +257,16 @@ app.registerExtension({
             const configSelectWidget = node.widgets.find(w => w.name === "config_select");
             const configNameWidget = node.widgets.find(w => w.name === "config_name");
 
+            // ---- Server Type -> Unload Endpoint auto-refresh ----
+            // When the user changes server_type, refresh unload_endpoint to the
+            // preset for that server type (unless the user entered a custom value).
+            const serverTypeWidget = node.widgets.find(w => w.name === "server_type");
+            if (serverTypeWidget) {
+                serverTypeWidget.callback = function () {
+                    refreshUnloadEndpoint();
+                };
+            }
+
             // Remove old boolean-based widgets (config_refresh, config_save, config_delete, force_refresh)
             // and replace them with proper button widgets
             for (const oldName of ["config_refresh", "config_save", "config_delete", "force_refresh"]) {
@@ -241,6 +283,24 @@ app.registerExtension({
                     map[name] = node.widgets.find(w => w.name === name);
                 }
                 return map;
+            }
+
+            // Refresh the unload_endpoint widget to match the current server_type.
+            // If the current value is a known preset (or empty/auto), it is replaced
+            // with the preset for the selected server_type. A user-entered custom
+            // value (not a known preset) is preserved.
+            function refreshUnloadEndpoint() {
+                const stWidget = node.widgets.find(w => w.name === "server_type");
+                const epWidget = node.widgets.find(w => w.name === "unload_endpoint");
+                if (!stWidget || !epWidget) return;
+                const current = (epWidget.value || "").trim();
+                // 空字符串也视为预设值（openai 的预设值就是空，且旧默认值可能被清空），
+                // 这样切换到任何 server_type 时都会刷新为对应预设值。
+                const isPreset = current === "" || KNOWN_UNLOAD_ENDPOINTS.includes(current);
+                const preset = UNLOAD_ENDPOINT_PRESETS[stWidget.value];
+                if (isPreset && preset !== undefined) {
+                    epWidget.value = preset;
+                }
             }
 
             // ============ Helpers ============
@@ -296,18 +356,6 @@ app.registerExtension({
                 } catch (e) {
                     console.error("[zyd232 LLM] Failed to delete config:", e);
                     return { success: false, error: e.message || "Network error" };
-                }
-            }
-
-            async function loadConfig(configName) {
-                try {
-                    const res = await api.fetchApi(`/zyd232/load_config?config_name=${encodeURIComponent(configName)}`, { method: "GET" });
-                    const data = await res.json();
-                    if (!data.success) return null;
-                    return data.config || null;
-                } catch (e) {
-                    console.error("[zyd232 LLM] Failed to load config:", e);
-                    return null;
                 }
             }
 
@@ -468,6 +516,67 @@ app.registerExtension({
 
             // ============ Wiring ============
 
+            // Reset a widget to its schema default. This is used when a loaded
+            // config does not contain a key for a widget (e.g. an old preset saved
+            // before a new parameter was added). Without this, the widget would
+            // keep whatever placeholder value ComfyUI assigned on workflow load
+            // (e.g. `off`/0/1 for a new int widget) instead of its real default.
+            function resetWidgetToDefault(widget) {
+                if (!widget) return;
+                // Prefer the schema default captured at node creation time (before
+                // any workflow restore or config load), which is the most reliable
+                // source. Fall back to the widget's options if the capture missed it.
+                const def = node.__zyd232WidgetDefaults?.[widget.name]
+                    ?? widget.options?.default
+                    ?? widget.options?.DefaultValue;
+                if (def !== undefined) {
+                    setWidgetValue(widget, def);
+                }
+            }
+
+            // Apply a loaded config's values onto the node's widgets. The api_key
+            // field is masked for display when the config stores a real key.
+            // Any SAVED_WIDGETS key missing from the config is reset to its schema
+            // default, so loading an old preset (saved before a parameter existed)
+            // still yields correct default values for the newer widgets.
+            function applyConfigToWidgets(cfg) {
+                if (!cfg) return;
+                const widgetMap = getWidgetMap();
+                for (const name of SAVED_WIDGETS) {
+                    if (cfg[name] === undefined) {
+                        // Key missing from the config (old preset): reset to default.
+                        resetWidgetToDefault(widgetMap[name]);
+                        continue;
+                    }
+                    if (name === "api_key" && cfg.api_key) {
+                        // Mask the api_key for display
+                        setWidgetValue(widgetMap[name], API_KEY_MASKED);
+                    } else {
+                        setWidgetValue(widgetMap[name], cfg[name]);
+                    }
+                }
+                if (node.setSize) node.setSize(node.size);
+                // After loading a preset, refresh unload_endpoint to match the
+                // loaded server_type (unless the preset stored a custom value).
+                refreshUnloadEndpoint();
+            }
+
+            // Load the currently-selected config preset and apply its values to the
+            // widgets. Returns the loaded config (or null on failure).
+            async function loadCurrentConfigIntoWidgets() {
+                const selected = configSelectWidget ? configSelectWidget.value : CONFIG_DEFAULT;
+                if (!selected || selected === MODEL_PLACEHOLDER) return null;
+                const cfg = await loadConfig(selected);
+                if (!cfg) {
+                    console.warn("[zyd232 LLM] Load config returned empty:", selected);
+                    return null;
+                }
+                // Override config_name widget too so it matches
+                if (configNameWidget) configNameWidget.value = selected;
+                applyConfigToWidgets(cfg);
+                return cfg;
+            }
+
             // --- config_select: when user chooses, load that config (skip placeholder logic) ---
             if (configSelectWidget) {
                 configSelectWidget.callback = async function () {
@@ -482,20 +591,7 @@ app.registerExtension({
 
                     // Override config_name widget too so it matches
                     if (configNameWidget) configNameWidget.value = selected;
-
-                    // Set widget values (api_key field uses masked placeholder if present in config)
-                    const widgetMap = getWidgetMap();
-                    for (const name of SAVED_WIDGETS) {
-                        if (cfg[name] === undefined) continue;
-                        if (name === "api_key" && cfg.api_key) {
-                            // Mask the api_key for display
-                            setWidgetValue(widgetMap[name], API_KEY_MASKED);
-                        } else {
-                            setWidgetValue(widgetMap[name], cfg[name]);
-                        }
-                    }
-
-                    if (node.setSize) node.setSize(node.size);
+                    applyConfigToWidgets(cfg);
 
                     // Switching to a different preset changes base_url/api_key, so
                     // refresh the model list for the newly selected server. This is an
@@ -517,17 +613,14 @@ app.registerExtension({
             // model that is currently unavailable.
             const FETCH_FAILED = "Fetch failed";
             const FETCHING = "Fetching models...";
+            // Thin wrappers around the shared helpers (from llm_model_utils.js).
             function setDropdownFailed(selectWidget) {
-                if (!selectWidget) return;
-                selectWidget.options.values = [FETCH_FAILED];
-                selectWidget.value = FETCH_FAILED;
+                setDropdownFailedShared(selectWidget, FETCH_FAILED);
             }
 
             // Show the transient "Fetching models..." state on a dropdown.
             function setDropdownFetching(selectWidget) {
-                if (!selectWidget) return;
-                selectWidget.options.values = [FETCHING];
-                selectWidget.value = FETCHING;
+                setDropdownFetchingShared(selectWidget, FETCHING);
             }
 
             async function updateModelList() {
@@ -554,18 +647,13 @@ app.registerExtension({
                         }
                     }
 
-                    const response = await api.fetchApi("/zyd232/fetch_models", {
-                        method: "POST",
-                        body: JSON.stringify({
-                            base_url: baseUrlWidget.value,
-                            api_key: resolvedApiKey,
-                            config_name: configSelectWidget ? configSelectWidget.value : CONFIG_DEFAULT
-                        })
-                    });
-
-                    const data = await response.json();
-                    if (data.success && data.models && data.models.length > 0) {
-                        const comboValues = [MODEL_PLACEHOLDER, ...data.models];
+                    const models = await fetchModels(
+                        baseUrlWidget.value,
+                        resolvedApiKey,
+                        configSelectWidget ? configSelectWidget.value : CONFIG_DEFAULT
+                    );
+                    if (models.length > 0) {
+                        const comboValues = [MODEL_PLACEHOLDER, ...models];
 
                         if (modelSelectWidget) {
                             modelSelectWidget.options.values = comboValues;
@@ -584,7 +672,7 @@ app.registerExtension({
                         // model when the field is empty (or holds a stale placeholder).
                         if (modelWidget) {
                             if (isModelValueEmpty(originalModel)) {
-                                modelWidget.value = data.models[0];
+                                modelWidget.value = models[0];
                             } else {
                                 modelWidget.value = originalModel;
                             }
@@ -592,7 +680,7 @@ app.registerExtension({
 
                         if (modelNoVisionWidget) {
                             if (isModelValueEmpty(originalNoVision)) {
-                                modelNoVisionWidget.value = data.models[0];
+                                modelNoVisionWidget.value = models[0];
                             } else {
                                 modelNoVisionWidget.value = originalNoVision;
                             }
@@ -641,7 +729,27 @@ app.registerExtension({
                 };
             }
 
+            // Localize the Reasoning Effort Select placeholder. The backend schema
+            // ships the English placeholder ("Choose reasoning effort") as the
+            // first option and default value; replace it with the translated
+            // string so the dropdown shows the correct text in every UI language.
+            // Declared as a hoisted function so the onConfigure override (defined
+            // earlier) can call it after restoring widget values.
+            function localizeReasoningEffortSelect() {
+                if (!reasoningEffortSelectWidget) return;
+                const effortOptions = reasoningEffortSelectWidget.options?.values || [];
+                if (effortOptions.length > 0) {
+                    effortOptions[0] = REASONING_EFFORT_PLACEHOLDER;
+                    reasoningEffortSelectWidget.options.values = effortOptions;
+                }
+                if (reasoningEffortSelectWidget.value === "Choose reasoning effort") {
+                    reasoningEffortSelectWidget.value = REASONING_EFFORT_PLACEHOLDER;
+                }
+            }
+
             if (reasoningEffortSelectWidget) {
+                localizeReasoningEffortSelect();
+
                 reasoningEffortSelectWidget.callback = function () {
                     const selectedValue = reasoningEffortSelectWidget.value;
                     // Ignore the placeholder so it never overwrites the user's value.
@@ -656,10 +764,20 @@ app.registerExtension({
             baseUrlWidget.callback = function () { updateModelList(); };
             apiKeyWidget.callback = function () { updateModelList(); };
 
-            // Initial fetch
-            setTimeout(updateModelList, 200);
-            // Initial refresh of config combo as well
-            setTimeout(refreshConfigCombo, 250);
+            // ============ Initial setup (execution order matters) ============
+            // When a node is created, its widgets start with the backend schema
+            // defaults. We must first load the currently-selected Config Preset's
+            // values into the widgets, and only then refresh the Model Select /
+            // Text-Only Model Select dropdowns (which fetch from the server using
+            // the now-correct base_url/api_key). Order:
+            //   1. refresh the config combo (so config_select lists all presets)
+            //   2. load the current preset's values into the widgets
+            //   3. refresh the model list using the loaded connection settings
+            setTimeout(async () => {
+                await refreshConfigCombo();
+                await loadCurrentConfigIntoWidgets();
+                updateModelList();
+            }, 200);
 
             return r;
         };

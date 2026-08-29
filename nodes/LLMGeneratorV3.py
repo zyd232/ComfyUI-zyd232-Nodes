@@ -46,6 +46,28 @@ from zyd232_streaming_events import (  # noqa: E402
     clear_active_generation,
 )
 
+# ServerAdapter 架构：统一不同 LLM 服务器（OpenAI/vLLM/llama.cpp/Ollama）的
+# API 标准差异（unload、reasoning_effort、payload、stop、流式解析）。
+# 与 streaming_events 一样，nodes/ 目录不是 Python 包，需按文件路径加载并
+# 缓存到 sys.modules，保证单一共享实例。
+_ADAPTERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llm_server_adapters.py")
+if "zyd232_llm_server_adapters" not in sys.modules:
+    _adapter_spec = _ilu.spec_from_file_location("zyd232_llm_server_adapters", _ADAPTERS_PATH)
+    _adapter_mod = _ilu.module_from_spec(_adapter_spec)
+    sys.modules["zyd232_llm_server_adapters"] = _adapter_mod
+    _adapter_spec.loader.exec_module(_adapter_mod)
+from zyd232_llm_server_adapters import (  # noqa: E402
+    get_adapter,
+    PayloadContext,
+    UnloadContext,
+    UnloadRequest,
+    StopContext,
+    send_unload_async,
+    send_unload_sync,
+    wait_for_unload,
+    unload_and_wait,
+)
+
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRESET_DIR = os.path.join(PLUGIN_ROOT, "presets")
 PRESET_FILE = os.path.join(PRESET_DIR, "llm_text_generator_presets.json")
@@ -122,8 +144,8 @@ SAVED_FIELDS = [
     "clean_comfy_vram_before_gen",
     "unload_after_gen",
     "unload_endpoint",
-    "llama_cpp_unload",
-    "llama_endpoint",
+    "unload_timeout",
+    "server_type",
     "cache_prompt",
     "auto_lock",
     "video_fps",
@@ -155,12 +177,32 @@ def list_config_files():
     presets = _load_all_presets()
     return sorted(presets.keys())
 
+def _migrate_config(cfg):
+    """将旧版 llama_cpp_unload/llama_endpoint 配置迁移到 server_type。
+
+    旧版使用独立的 ``llama_cpp_unload`` 布尔开关 + ``llama_endpoint`` 路径；
+    新版统一用 ``server_type`` 选择器。迁移时若旧配置启用了 llama.cpp 卸载，
+    则映射为 ``server_type = "llama.cpp"``，否则保持 ``auto``。
+    """
+    if not isinstance(cfg, dict):
+        return cfg
+    if "server_type" not in cfg:
+        if cfg.get("llama_cpp_unload"):
+            cfg["server_type"] = "llama.cpp"
+        else:
+            cfg["server_type"] = "auto"
+    # 清理已废弃字段
+    cfg.pop("llama_cpp_unload", None)
+    cfg.pop("llama_endpoint", None)
+    return cfg
+
+
 def load_config_file(name):
     """Load a preset by name from the single JSON file. Returns dict or None."""
     safe_name = sanitize_config_name(name)
     presets = _load_all_presets()
     if safe_name in presets and isinstance(presets[safe_name], dict):
-        return presets[safe_name]
+        return _migrate_config(presets[safe_name])
     return None
 
 def save_config_file(name, config_data):
@@ -443,7 +485,15 @@ async def stop_generation_endpoint(request):
         # unload/exit command. For servers that stop on connection close
         # (Ollama/vLLM/OpenAI-compatible) these requests simply fail harmlessly.
         try:
+            # 用 active generation 中记录的 server_type 创建适配器，以生成正确的
+            # stop 命令（llama.cpp 需要显式命令，其他服务器关连接即停）。
+            stop_adapter = get_adapter(
+                gen.get("server_type") or "auto",
+                gen.get("base_url") or "",
+                gen.get("api_key") or "",
+            )
             _send_stop_command_async(
+                stop_adapter,
                 gen.get("base_url") or "",
                 gen.get("model") or "",
                 {"Authorization": f"Bearer {gen.get('api_key') or ''}", "Content-Type": "application/json"},
@@ -460,32 +510,7 @@ async def stop_generation_endpoint(request):
         return web.json_response({"success": False, "error": str(e)})
 
 
-def _send_unload_async(url, payload, headers, timeout_sec=5, method='POST'):
-    """Send an unload request on a background daemon thread.
-
-    Used so that unload requests never block the node's execute() from
-    returning. llama.cpp stops processing (and unloads the model) only when it
-    receives an unload/exit command, so this must be sent even when the user has
-    not enabled the unload option, otherwise the server would keep processing the
-    multimodal prompt after a Stop.
-
-    ``method`` defaults to POST; pass 'DELETE' for servers that expect a DELETE
-    unload request (e.g. the general /v1/models/unload endpoint).
-    """
-    def _do():
-        try:
-            req = urllib.request.Request(
-                url, data=json.dumps(payload).encode('utf-8'),
-                headers=headers, method=method
-            )
-            urllib.request.urlopen(req, timeout=timeout_sec)
-        except Exception as e:
-            print(f"[zyd232 LLM] Async unload request failed: {e}")
-
-    threading.Thread(target=_do, daemon=True).start()
-
-
-def _send_stop_command_async(base_url, model, headers, timeout_sec=3):
+def _send_stop_command_async(adapter, base_url, model, headers, timeout_sec=3):
     """Send a stop/cancel command on a background daemon thread.
 
     Different LLM servers stop streaming in different ways:
@@ -494,28 +519,24 @@ def _send_stop_command_async(base_url, model, headers, timeout_sec=3):
       * llama.cpp does NOT stop prompt processing when the connection is closed;
         it only stops when it receives an explicit unload/exit command.
 
-    So on Stop we additionally try a small set of well-known unload/exit
-    endpoints. For servers that don't need it (Ollama/vLLM) these requests simply
-    fail (404 etc.) and are ignored, which is harmless. For llama.cpp the first
-    matching endpoint makes it stop immediately.
+    The adapter's ``build_stop_commands`` returns the appropriate stop requests
+    for the selected server type. For servers that don't need it (Ollama/vLLM)
+    the list is empty; for llama.cpp it returns the well-known unload/exit
+    endpoints so the first matching one makes it stop immediately.
 
     Runs on a daemon thread so it never blocks the caller.
     """
-    candidates = [
-        f"{base_url}/models/unload",            # llama.cpp default
-        f"{base_url}/v1/models/unload",         # OpenAI-compatible unload
-        f"{base_url}/slots/0?action=release",   # llama.cpp slot release
-    ]
+    requests = adapter.build_stop_commands(StopContext(base_url=base_url, model=model))
 
     def _do():
-        for url in candidates:
+        for req in requests:
             try:
-                req = urllib.request.Request(
-                    url, data=json.dumps({"model": model}).encode('utf-8'),
-                    headers=headers, method='POST'
+                r = urllib.request.Request(
+                    req.url, data=json.dumps(req.payload or {}).encode('utf-8'),
+                    headers=headers, method=req.method
                 )
-                urllib.request.urlopen(req, timeout=timeout_sec)
-                print(f"[zyd232 LLM] Stop command accepted by {url}")
+                urllib.request.urlopen(r, timeout=timeout_sec)
+                print(f"[zyd232 LLM] Stop command accepted by {req.url}")
                 return  # success: stop trying further endpoints
             except Exception:
                 continue  # try the next endpoint
@@ -523,7 +544,34 @@ def _send_stop_command_async(base_url, model, headers, timeout_sec=3):
     threading.Thread(target=_do, daemon=True).start()
 
 
-async def _stream_async(url, payload, headers, scope,
+def _extract_error_message(e):
+    """从异常中提取可读的错误描述，用于前端 Error 状态显示。
+
+    服务器返回的错误通常包装在 ``urllib.error.HTTPError`` 中，其 body 是
+    JSON（如 ``{"error": {"message": "..."}}``）。这里尝试解析出 message，
+    失败则回退到原始 body 或异常字符串。
+    """
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            body = e.read().decode('utf-8', errors='replace')
+        except Exception:
+            body = ""
+        if body:
+            try:
+                data = json.loads(body)
+                msg = (data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else None
+                if not msg:
+                    msg = data.get("message")
+                if msg:
+                    return f"HTTP {e.code}: {msg}"
+            except Exception:
+                pass
+            return f"HTTP {e.code}: {body[:300]}"
+        return f"HTTP {e.code}"
+    return str(e)
+
+
+async def _stream_async(url, payload, headers, scope, adapter,
                         think_start_tag, think_end_tag, separate_thinking, push_done):
     """Asynchronously send a streaming (SSE) chat completion request and accumulate
     the result.
@@ -531,6 +579,10 @@ async def _stream_async(url, payload, headers, scope,
     Runs on ComfyUI's aiohttp event loop. Returns a ``(full_text, reasoning)``
     tuple. Because it is an asyncio task, cancelling it (via the Stop button)
     immediately interrupts the connection and the stream reader.
+
+    ``adapter`` is the ServerAdapter used to parse each stream chunk (different
+    servers use different stream formats, e.g. OpenAI ``choices[].delta`` vs
+    Ollama ``{"response": ...}``).
 
     ``push_done`` controls whether the terminal ``done`` event is pushed to the
     frontend. It must be True only for the actual LLM generation call; unload
@@ -543,9 +595,11 @@ async def _stream_async(url, payload, headers, scope,
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers) as resp:
             # Raise for non-2xx so the caller's HTTPError fallback logic works.
+            # The body is wrapped in BytesIO so _extract_error_message() can read
+            # the server's error description (e.g. llama.cpp Jinja exceptions).
             if resp.status >= 400:
                 body = await resp.text()
-                raise urllib.error.HTTPError(url, resp.status, body[:200], resp.headers, None)
+                raise urllib.error.HTTPError(url, resp.status, body[:200], resp.headers, BytesIO(body.encode('utf-8')))
             if push_done:
                 push_stream_event(scope, "", "", start=True)
             async for raw_line in resp.content:
@@ -559,12 +613,10 @@ async def _stream_async(url, payload, headers, scope,
                     chunk = json.loads(data)
                 except Exception:
                     continue
-                choices = chunk.get("choices") or []
-                if not choices:
+                # 使用适配器解析流式块（不同服务器格式不同）。
+                delta_text, delta_reasoning = adapter.parse_stream_chunk(chunk)
+                if not delta_text and not delta_reasoning:
                     continue
-                delta = choices[0].get("delta") or {}
-                delta_text = delta.get("content") or ""
-                delta_reasoning = delta.get("reasoning_content") or ""
 
                 # If the API provides native reasoning_content, trust it directly.
                 if delta_reasoning:
@@ -611,6 +663,9 @@ async def _stream_async(url, payload, headers, scope,
 
 class zyd232_LLMGeneratorV3(io.ComfyNode):
     _CHOICE_PLACEHOLDER = "Choose a model from the list"
+    # Placeholder shown as the first (default) option of the Reasoning Effort
+    # Select dropdown. Selecting it leaves the reasoning_effort field untouched.
+    _REASONING_EFFORT_PLACEHOLDER = "Choose reasoning effort"
 
     @classmethod
     def define_schema(cls):
@@ -635,6 +690,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     tooltip="Name for this preset; illegal characters are removed automatically"),
 
                 # --- Connection settings --- #
+                io.Combo.Input("server_type",
+                    options=["auto", "openai", "vllm", "llama.cpp", "ollama"],
+                    default="auto",
+                    display_name="Server Type",
+                    tooltip="LLM server type. Determines how unload, reasoning_effort and payload are sent to the server. 'auto' probes the server automatically."),
                 io.String.Input("base_url", default="http://127.0.0.1:8080",
                     display_name="Base URL",
                     tooltip="AI service URL, e.g. Ollama or vLLM endpoint"),
@@ -690,10 +750,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 # fallback), which requires the LLM server to enable its Jinja
                 # template.
                 io.Combo.Input("reasoning_effort_select",
-                    options=["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+                    options=[cls._REASONING_EFFORT_PLACEHOLDER, "off", "minimal", "low", "medium", "high", "xhigh", "max"],
+                    default=cls._REASONING_EFFORT_PLACEHOLDER,
                     display_name="Reasoning Effort Select",
                     tooltip="Dropdown to pick a reasoning effort. Selection will fill the 'reasoning_effort' field below."),
-                io.String.Input("reasoning_effort", default="",
+                io.String.Input("reasoning_effort", default="off",
                     display_name="Reasoning Effort",
                     tooltip="Reasoning effort sent to the server (requires the LLM server to enable its Jinja template). Can be typed manually or selected from the dropdown above. 'off'/'none' disables thinking."),
                 io.Boolean.Input("separate_thinking", default=False, label_on="Enable", label_off="Disable",
@@ -713,18 +774,14 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 io.Boolean.Input("unload_after_gen", default=False, label_on="Enable", label_off="Disable",
                     display_name="Unload After Gen",
                     tooltip="Unload model after generation to free VRAM"),
-                io.String.Input("unload_endpoint", default="/v1/models/unload",
+                io.String.Input("unload_endpoint", default="auto",
                     display_name="Unload Endpoint",
-                    tooltip="API endpoint path for unloading the model"),
+                    tooltip="API endpoint path for unloading the model. 'auto' uses the endpoint preset for the selected Server Type; a custom value is used as-is."),
+                io.Int.Input("unload_timeout", default=3, min=1, max=60, step=1,
+                    display_name="Unload Timeout",
+                    tooltip="Max seconds to wait for the server to finish unloading before proceeding. Uses a hybrid strategy: sends the unload request synchronously, then polls /v1/models to confirm the model is released. A timeout prevents the node from blocking the workflow indefinitely if the server is slow."),
 
-                io.Boolean.Input("llama_cpp_unload", default=False, label_on="Enable", label_off="Disable",
-                    display_name="llama.cpp Unload",
-                    tooltip="Unload model via llama.cpp-specific endpoint"),
-                io.String.Input("llama_endpoint", default="/models/unload",
-                    display_name="llama.cpp Endpoint",
-                    tooltip="llama.cpp unload API endpoint path"),
-
-                io.Boolean.Input("cache_prompt", default=True, label_on="Enable", label_off="Disable",
+                io.Boolean.Input("cache_prompt", default=False, label_on="Enable", label_off="Disable",
                     display_name="Cache Prompt",
                     tooltip="Cache prompts to speed up repeated requests"),
 
@@ -960,8 +1017,8 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 temperature, top_k, seed, context_length, timeout,
                 reasoning_effort_select, reasoning_effort, separate_thinking, think_start_tag, think_end_tag,
                 clean_comfy_vram_before_gen,
-                unload_after_gen, unload_endpoint,
-                llama_cpp_unload, llama_endpoint,
+                unload_after_gen, unload_endpoint, unload_timeout,
+                server_type,
                 cache_prompt, auto_lock,
                 video_fps, max_video_frames, enable_audio,
                 use_locked=False, locked_text="", locked_reasoning="",
@@ -1022,8 +1079,9 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         # 兜底空字符串的情况
         if not think_start_tag.strip(): think_start_tag = "<think>"
         if not think_end_tag.strip(): think_end_tag = "</think>"
-        if not unload_endpoint.strip(): unload_endpoint = "/v1/models/unload"
-        if not llama_endpoint.strip(): llama_endpoint = "/models/unload"
+        if not unload_endpoint.strip(): unload_endpoint = ""
+        if not server_type or server_type not in ("auto", "openai", "vllm", "llama.cpp", "ollama"):
+            server_type = "auto"
 
         if clean_comfy_vram_before_gen:
             try:
@@ -1097,6 +1155,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             "base_url": clean_base_url,
             "model": model,
             "api_key": actual_key,
+            "server_type": server_type,
         })
         encoding_stopped = False
 
@@ -1196,43 +1255,22 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         else:
             actual_model = model_NoVision
 
-        payload = {
-            "model": actual_model, "messages": messages, "temperature": temperature,
-            "top_k": top_k, "stream": True
-        }
-        if context_length not in [-1, 0]:
-            payload["num_ctx"] = context_length
-            payload["n_ctx"] = context_length
+        # --- ServerAdapter: 根据 server_type 获取适配器，统一处理 payload /
+        # reasoning_effort / unload / stop / 流式解析等服务器标准差异。 ---
+        adapter = get_adapter(server_type, clean_base_url, actual_key)
+
+        # 使用适配器提供的聊天端点（不同服务器端点路径不同，如 Ollama 为 /api/chat）。
+        chat_url = adapter.chat_endpoint(clean_base_url)
+
+        payload = adapter.build_payload(PayloadContext(
+            model=actual_model, messages=messages, temperature=temperature,
+            top_k=top_k, seed=seed, context_length=context_length,
+            reasoning_effort=reasoning_effort, separate_thinking=separate_thinking,
+            cache_prompt=cache_prompt,
+        ))
 
         if not separate_thinking:
             payload["thinking_config"] = {"mode": "none"}
-
-        # --- Reasoning effort (dual-insurance) ---
-        # Derive enable_thinking from the reasoning_effort value: 'off'/'none'
-        # disables thinking, any other value enables it. The control parameters
-        # are wrapped inside chat_template_kwargs (required by llama.cpp / older
-        # vLLM) AND mirrored at the top level (vLLM / OpenAI native spec) as a
-        # fallback. This requires the LLM server to enable its Jinja template.
-        effort_raw = (reasoning_effort or "").strip().lower()
-        if effort_raw in ("", "off", "none"):
-            enable_thinking = False
-            effort_value = "none" if effort_raw in ("off", "none") else ""
-        else:
-            enable_thinking = True
-            effort_value = effort_raw
-
-        if effort_value or not enable_thinking:
-            payload["chat_template_kwargs"] = {
-                "reasoning_effort": effort_value or "none",
-                "enable_thinking": enable_thinking,
-            }
-            # Top-level mirror (vLLM / OpenAI native spec + older vLLM fallback)
-            payload["reasoning_effort"] = effort_value or "none"
-            payload["enable_thinking"] = enable_thinking
-
-        if seed != -1: payload["seed"] = seed
-        if cache_prompt:
-            payload["cache_prompt"] = True
 
         full_text = ""
         reasoning = ""
@@ -1248,6 +1286,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             "base_url": clean_base_url,
             "model": actual_model,
             "api_key": actual_key,
+            "server_type": server_type,
         })
 
         # --- Submit the streaming request as an asyncio task on ComfyUI's event
@@ -1265,7 +1304,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             it as a user-initiated stop.
             """
             future = asyncio.run_coroutine_threadsafe(
-                _stream_async(url, payload_dict, headers, scope,
+                _stream_async(url, payload_dict, headers, scope, adapter,
                               think_start_tag, think_end_tag, separate_thinking, push_done),
                 loop
             )
@@ -1332,10 +1371,22 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 # the previous partial content).
                 push_stream_event(scope, "", "", done=True, stopped=True)
             else:
-                # Do NOT surface the raw error text as a normal output: it would
-                # pollute downstream prompts (e.g. when consumed by another LLM).
-                # Log it for debugging and return empty text instead.
-                print(f"[zyd232 LLM] Generation failed: {e}")
+                # Generation failed with a real error (not a user Stop). Extract a
+                # readable message and surface it to the frontend as an Error status
+                # instead of silently returning empty text. We also interrupt the
+                # workflow (like Stop Generation) so downstream nodes do not run on
+                # empty/garbage output.
+                error_msg = _extract_error_message(e)
+                print(f"[zyd232 LLM] Generation failed: {error_msg}")
+                # Push a terminal error event so the frontend shows the Error status
+                # and the message in the Streaming Text panel.
+                push_stream_event(scope, "", "", done=True, error=error_msg)
+                # Interrupt the workflow so execution does not continue downstream.
+                try:
+                    nodes.interrupt_processing()
+                    print("[zyd232 LLM] Workflow interrupted due to generation error.")
+                except Exception as ie:
+                    print(f"[zyd232 LLM] Failed to interrupt workflow on error: {ie}")
                 final_text = ""
                 reasoning = ""
         finally:
@@ -1347,9 +1398,6 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             # Always clear the active generation registry once execution finishes.
             clear_active_generation()
 
-        full_unload_url = f"{clean_base_url}/{unload_endpoint.lstrip('/')}"
-        full_llama_url = f"{clean_base_url}/{llama_endpoint.lstrip('/')}"
-
         # Unload requests are sent whenever the generation was stopped OR the
         # unload option is enabled. This is essential: llama.cpp stops processing
         # (and unloads the model) only when it receives an unload/exit command,
@@ -1357,24 +1405,53 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         # enabled the unload option, a Stop must still send the unload command,
         # otherwise the server would keep processing the multimodal prompt.
         #
-        # All unload requests are dispatched on background daemon threads so they
-        # never block execute() from returning (the node stops immediately).
+        # The adapter's build_unload returns the appropriate unload request(s)
+        # for the selected server type (endpoint / HTTP method / payload).
+        # ``unload_endpoint`` is an optional user override; when empty the adapter
+        # uses its server-type default.
+        #
+        # Unload dispatch strategy (hybrid):
+        #   * Stop scenario (_generation_was_stopped): the workflow has already
+        #     been interrupted by interrupt_processing(), so downstream nodes will
+        #     NOT run. We only need to make the server stop/unload, so requests are
+        #     dispatched on background daemon threads and never block execute().
+        #   * Normal unload scenario (unload_after_gen): the workflow WILL continue
+        #     to downstream nodes. If we return before the server has actually
+        #     released its VRAM, a downstream node that loads a large model can OOM.
+        #     So we use the hybrid strategy (_unload_and_wait): send the unload
+        #     request synchronously, then poll /v1/models to confirm the model is
+        #     released, bounded by unload_timeout so the node never blocks the
+        #     workflow indefinitely.
         if _generation_was_stopped or unload_after_gen:
             try:
-                print(f"[zyd232 LLM] Sending general unload request to: {full_unload_url}")
-                # Dispatch on a background thread so the DELETE request never
-                # blocks execute() from returning. The server may take a while to
-                # unload/clean up, and we must not wait for it.
-                _send_unload_async(full_unload_url, {"action": "unload", "model": actual_model, "keep_alive": 0}, headers, method='DELETE')
+                if _generation_was_stopped:
+                    # Stop scenario: workflow is interrupted, keep it async.
+                    unload_reqs = adapter.build_unload(UnloadContext(
+                        base_url=clean_base_url, model=actual_model,
+                        unload_endpoint=unload_endpoint or None,
+                    ))
+                    # auto 模式兜底：当 server_type=auto 且探测失败（回退到 OpenAI，
+                    # 无卸载请求）时，尝试向所有可能的 unload 端点发送信号，确保
+                    # 卸载/停止信号能送达（无害的 404 会被服务器忽略）。
+                    if server_type == "auto" and not unload_reqs:
+                        unload_reqs = [
+                            UnloadRequest(url=f"{clean_base_url}/models/unload", method="POST", payload={"model": actual_model}),
+                            UnloadRequest(url=f"{clean_base_url}/v1/models/unload", method="DELETE", payload={"action": "unload", "model": actual_model, "keep_alive": 0}),
+                            UnloadRequest(url=f"{clean_base_url}/api/generate", method="POST", payload={"model": actual_model, "keep_alive": 0}),
+                        ]
+                    for req in unload_reqs:
+                        print(f"[zyd232 LLM] Sending unload request to: {req.url} (method={req.method})")
+                        send_unload_async(req.url, req.payload, headers, method=req.method)
+                else:
+                    # Normal unload scenario: wait for the server to release VRAM
+                    # so downstream nodes do not OOM.
+                    unload_and_wait(
+                        adapter, clean_base_url, actual_model, headers,
+                        unload_endpoint, server_type,
+                        timeout_sec=unload_timeout,
+                    )
             except Exception as e:
-                print(f"[zyd232 LLM] General Unload failed: {e}")
-
-        if _generation_was_stopped or llama_cpp_unload:
-            try:
-                print(f"[zyd232 LLM] Sending unload signal to llama.cpp at: {full_llama_url} for model: {actual_model}...")
-                _send_unload_async(full_llama_url, {"model": actual_model}, headers)
-            except Exception as e:
-                print(f"[zyd232 LLM] llama.cpp Unload request failed: {e}")
+                print(f"[zyd232 LLM] Unload request failed: {e}")
 
         # --- Auto-lock persistence into the executing prompt & workflow ---
         # When auto_lock is enabled and the generation completed (not stopped),

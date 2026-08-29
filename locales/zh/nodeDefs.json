@@ -25,9 +25,9 @@
             "think_end_tag": { "name": "思考结束标签", "tooltip": "标记思考内容结束的结束标签" },
             "clean_comfy_vram_before_gen": { "name": "生成前清理显存", "tooltip": "生成前清理 ComfyUI 显存以避免 OOM" },
             "unload_after_gen": { "name": "生成后卸载模型", "tooltip": "生成后卸载模型以释放显存" },
-            "unload_endpoint": { "name": "卸载端点", "tooltip": "用于卸载模型的 API 端点路径" },
-            "llama_cpp_unload": { "name": "llama.cpp 卸载", "tooltip": "通过 llama.cpp 专用端点卸载模型" },
-            "llama_endpoint": { "name": "llama.cpp 端点", "tooltip": "llama.cpp 卸载 API 端点路径" },
+            "unload_endpoint": { "name": "卸载端点", "tooltip": "用于卸载模型的 API 端点路径。'auto' 使用所选服务器类型的预设端点；自定义值将原样使用" },
+            "unload_timeout": { "name": "卸载超时", "tooltip": "等待服务端完成卸载的最大秒数。采用混合策略：先同步发送卸载请求，再轮询 /v1/models 确认模型已释放，确保后续节点不会因服务端尚未卸载完成而 OOM。设置超时是为了防止服务端卸载缓慢时节点无限阻塞工作流。" },
+            "server_type": { "name": "服务器类型", "tooltip": "LLM 服务器类型，决定卸载、reasoning_effort 和 payload 的发送方式。'auto' 自动探测服务器" },
             "cache_prompt": { "name": "缓存提示词", "tooltip": "缓存提示词以加速重复请求" },
             "auto_lock": { "name": "自动锁定结果", "tooltip": "启用后，生成完成后流式文本面板会自动锁定结果" },
             "video_fps": { "name": "视频采样密度", "tooltip": "每个参考视频的采样密度。假设源视频为 24fps：每 24 个源帧保留 video_fps 帧（n = total * video_fps/24），然后受 max_video_frames 限制。默认 1.0。" },
@@ -36,6 +36,19 @@
             "use_locked": { "name": "使用锁定结果", "tooltip": "为真时跳过 LLM 生成并返回锁定结果" },
             "locked_text": { "name": "锁定文本", "tooltip": "use_locked 为真时返回的锁定最终文本" },
             "locked_reasoning": { "name": "锁定思考", "tooltip": "use_locked 为真时返回的锁定思考文本" }
+        }
+    },
+    "zyd232 LLMUnload": {
+        "display_name": "LLM 卸载",
+        "description": "向 LLM Server 发送 unload 信号，从显存卸载模型。该节点的所有参数均来自 LLM Text Generator 所保存的 config preset。使用前请先确认：当前 LLM Text Generator 节点的配置能够保证 'Unload After Gen' 正常运行，因为本节点的正常运行依托于 config preset 中相关参数的正确配置。类似 reroute：any 输入原样透传到 any 输出。",
+        "inputs": {
+            "config_select": { "name": "配置预设", "tooltip": "选择已保存的服务器预设。所有卸载参数（base_url、api_key、model、server_type、unload_endpoint、unload_timeout）均从该预设读取，该预设由 LLM Text Generator 节点保存。" },
+            "model_select": { "name": "模型选择", "tooltip": "下拉选择要卸载的模型。选择后将填入下方的 'model' 字段。" },
+            "model": { "name": "模型", "tooltip": "要卸载的模型名称（自由输入）。可手动输入或从上方下拉框选择。留空则回退到 config preset 中保存的模型。" },
+            "any_input": { "name": "任意输入", "tooltip": "可选。任意值，原样透传。使该节点可插入工作流任意位置。" }
+        },
+        "outputs": {
+            "any_output": { "name": "任意输出", "tooltip": "原样透传的输入值。" }
         }
     },
     "zyd232 ImagesPixelsCompare": {

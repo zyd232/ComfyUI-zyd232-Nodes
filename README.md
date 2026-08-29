@@ -28,6 +28,7 @@ Restart ComfyUI. The nodes will appear under the **zyd232 Nodes** category.
 | Node | Category | Description | Docs |
 |------|----------|-------------|------|
 | **LLM Text Generator** | `zyd232 Nodes/LLM` | Connect to any OpenAI-compatible LLM service for text generation. Supports multiple images/videos/audio, streaming display, config presets, and result locking. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/LLM-Text-Generator) |
+| **LLM Unload** | `zyd232 Nodes/LLM` | Send an unload signal to the LLM Server to release the model from VRAM. All parameters come from the config preset saved by the LLM Text Generator node. Supports selecting a specific model to unload. | |
 | **Images Pixels Compare** | `zyd232 Nodes` | Compare two images at the pixel level to check if they are identical; outputs a boolean. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Images-Pixels-Compare) |
 | **Save Preview Images** | `zyd232 Nodes` | Save images (PNG/JPG) with quality, metadata, custom path, workflow JSON, and preview options. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Save-Preview-Images) |
 | **Mask Batch Blend** | `zyd232 Nodes` | Blend multiple masks into one using add / max / average operations. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Mask-Batch-Blend) |

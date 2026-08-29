@@ -17,6 +17,7 @@ Welcome to the **ComfyUI zyd232 Nodes** Wiki! Here each node is documented indiv
 | Node | Category | Description | Docs |
 |------|----------|-------------|------|
 | **LLM Text Generator** | `zyd232 Nodes/LLM` | Connect to any OpenAI-compatible LLM service for text generation. Supports multiple images/videos/audio, streaming display, config presets, and result locking. | [📄 Docs](LLM-Text-Generator) |
+| **LLM Unload** | `zyd232 Nodes/LLM` | Send an unload signal to the LLM Server to release the model from VRAM. All parameters come from the config preset saved by the LLM Text Generator node. Supports selecting a specific model to unload. | |
 | **Images Pixels Compare** | `zyd232 Nodes` | Compare two images at the pixel level to check if they are identical; outputs a boolean. | [📄 Docs](Images-Pixels-Compare) |
 | **Save Preview Images** | `zyd232 Nodes` | Save images (PNG/JPG) with quality, metadata, custom path, workflow JSON, and preview options. | [📄 Docs](Save-Preview-Images) |
 | **Mask Batch Blend** | `zyd232 Nodes` | Blend multiple masks into one using add / max / average operations. | [📄 Docs](Mask-Batch-Blend) |
@@ -43,6 +44,7 @@ All nodes are registered under the `zyd232 Nodes` category; the LLM node is in t
 | Node | Class name (`NODE_CLASS_MAPPINGS` key) |
 |------|----------------------------------------|
 | LLM Text Generator | `zyd232 LLMGenerator` |
+| LLM Unload | `zyd232 LLMUnload` |
 | Images Pixels Compare | `zyd232 ImagesPixelsCompare` |
 | Save Preview Images | `zyd232_SavePreviewImages` |
 | Mask Batch Blend | `zyd232 MaskBatchBlend` |
@@ -52,6 +54,7 @@ All nodes are registered under the `zyd232 Nodes` category; the LLM node is in t
 ## 📖 Node Documentation
 
 - [LLM Text Generator](LLM-Text-Generator)
+- [LLM Unload](LLM-Unload)
 - [Images Pixels Compare](Images-Pixels-Compare)
 - [Save Preview Images](Save-Preview-Images)
 - [Mask Batch Blend](Mask-Batch-Blend)

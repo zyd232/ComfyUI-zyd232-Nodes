@@ -17,6 +17,7 @@
 | 节点名称 | 类别 | 功能简介 | 文档 |
 |---------|------|---------|------|
 | **LLM Text Generator** | `zyd232 Nodes/LLM` | 连接任意 OpenAI 兼容 LLM 服务进行文本生成，支持多图/视频/音频、流式显示、配置预设、结果锁定 | [📄 查看文档](LLM-Text-Generator-简中) |
+| **LLM Unload** | `zyd232 Nodes/LLM` | 向 LLM Server 发送 unload 信号，从显存卸载模型。所有参数均来自 LLM Text Generator 所保存的 config preset。支持选择要卸载的特定模型 | |
 | **Images Pixels Compare** | `zyd232 Nodes` | 像素级比较两张图片是否完全相同，输出布尔值 | [📄 查看文档](Images-Pixels-Compare-简中) |
 | **Save Preview Images** | `zyd232 Nodes` | 保存图片（PNG/JPG），支持质量、元数据、自定义路径、工作流 JSON 与预览 | [📄 查看文档](Save-Preview-Images-简中) |
 | **Mask Batch Blend** | `zyd232 Nodes` | 将多个 Mask 通过 add / max / average 操作合并为一个 | [📄 查看文档](Mask-Batch-Blend-简中) |
@@ -43,6 +44,7 @@ git clone https://github.com/zyd232/ComfyUI-zyd232-Nodes.git
 | 节点 | 类名（`NODE_CLASS_MAPPINGS` 键） |
 |------|--------------------------------|
 | LLM Text Generator | `zyd232 LLMGenerator` |
+| LLM Unload | `zyd232 LLMUnload` |
 | Images Pixels Compare | `zyd232 ImagesPixelsCompare` |
 | Save Preview Images | `zyd232_SavePreviewImages` |
 | Mask Batch Blend | `zyd232 MaskBatchBlend` |
@@ -52,6 +54,7 @@ git clone https://github.com/zyd232/ComfyUI-zyd232-Nodes.git
 ## 📖 各节点文档
 
 - [LLM Text Generator](LLM-Text-Generator-简中)
+- [LLM Unload](LLM-Unload-简中)
 - [Images Pixels Compare](Images-Pixels-Compare-简中)
 - [Save Preview Images](Save-Preview-Images-简中)
 - [Mask Batch Blend](Mask-Batch-Blend-简中)

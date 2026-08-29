@@ -70,7 +70,7 @@ def get_execution_scope():
 
 
 def push_stream_event(scope, content="", reasoning_content="",
-                      done=False, stopped=False, start=False):
+                      done=False, stopped=False, start=False, error=""):
     """Push one streaming-text chunk to the frontend over WebSocket.
 
     ``scope`` is the dict returned by :func:`get_execution_scope` (or a plain
@@ -78,7 +78,9 @@ def push_stream_event(scope, content="", reasoning_content="",
     empty scope (legacy routing on the frontend).
 
     All other arguments have the same meaning as the individual fields of the
-    WS payload described in the module docstring.
+    WS payload described in the module docstring. ``error`` carries a human
+    readable error description when the generation failed (the frontend shows
+    an Error status and the message instead of a normal result).
     """
     try:
         scope = scope or {}
@@ -90,6 +92,7 @@ def push_stream_event(scope, content="", reasoning_content="",
             "done": bool(done),
             "stopped": bool(stopped),
             "start": bool(start),
+            "error": error or "",
         })
     except Exception as e:
         print(f"[zyd232 LLM] Failed to push stream event: {e}")
