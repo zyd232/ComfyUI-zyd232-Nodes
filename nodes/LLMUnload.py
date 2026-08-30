@@ -1,13 +1,18 @@
 """LLM Unload 节点：向 LLM Server 发送 unload 信号，从显存卸载模型。
 
 这是 LLM Text Generator 的简化版本，仅保留 config preset 栏目与
-Refresh Config List 按钮。所有发送 unload 信号所需的参数（base_url、
-api_key、model、server_type、unload_endpoint、unload_timeout）都直接
-从当前选择的 config preset 中读取，而不是来自节点自身的参数。
+Refresh Config List 按钮。发送 unload 信号所需的参数（base_url、
+api_key、model、server_type、unload_endpoint）都直接从当前选择的
+config preset 中读取；而 unload_timeout 则与 LLM Text Generator 一样，
+来自节点自身的 Unload Timeout 控件（不再从 config preset 读取）。
 
 与 LLM Text Generator 一样，根据 server_type 决定发送什么样的信号，
 整个 unload 流程与兜底机制（auto 模式多端点兜底、同步发送 + 轮询确认
 的混合策略）都复用共享模块 llm_server_adapters.py 中的实现。
+
+本模块同时提供 Unload Timeout 的公用代码（unload_timeout_input /
+parse_unload_timeout），供 LLM Text Generator 节点复用，保证两个节点
+的 Unload Timeout 控件定义与解析逻辑完全一致。
 """
 
 import importlib.util
@@ -54,6 +59,63 @@ API_KEY_MASKED = _llm_gen.API_KEY_MASKED
 
 # 合法的 server_type 取值（与 LLM Text Generator 一致）。
 _VALID_SERVER_TYPES = ("auto", "openai", "vllm", "llama.cpp", "ollama")
+
+# ======================= Unload Timeout 公用代码 =======================
+# 以下两个函数是 Unload Timeout 栏目的公用实现，供 LLM Unload 与
+# LLM Text Generator 两个节点复用，保证控件定义与解析逻辑完全一致。
+# 它们不依赖 LLMGeneratorV3.py，因此 LLMGeneratorV3.py 可以安全地
+# 惰性加载本模块来复用它们，而不会产生循环导入问题。
+
+# Unload Timeout 控件的默认值 / 取值范围（与 LLM Text Generator 一致）。
+# 默认值为 1，取值范围为从 0 开始的整数（0 表示不等待，立即继续）。
+UNLOAD_TIMEOUT_DEFAULT = 1
+UNLOAD_TIMEOUT_MIN = 0
+UNLOAD_TIMEOUT_MAX = 60
+
+
+def unload_timeout_input():
+    """返回 Unload Timeout 的 io.Int.Input 控件定义（公用）。
+
+    与 LLM Text Generator 中的 Unload Timeout 栏目完全一致：
+    default=1, min=0, max=60, step=1, display_name="Unload Timeout"。
+    """
+    return io.Int.Input(
+        "unload_timeout",
+        default=UNLOAD_TIMEOUT_DEFAULT,
+        min=UNLOAD_TIMEOUT_MIN,
+        max=UNLOAD_TIMEOUT_MAX,
+        step=1,
+        display_name="Unload Timeout",
+        tooltip=(
+            "Max seconds to wait for the server to finish unloading before proceeding. "
+            "Uses a hybrid strategy: sends the unload request synchronously, then polls "
+            "/v1/models to confirm the model is released. A timeout prevents the node from "
+            "blocking the workflow indefinitely if the server is slow. 0 means do not wait "
+            "and continue immediately."
+        ),
+    )
+
+
+def parse_unload_timeout(value):
+    """归一化 Unload Timeout 值（公用）。
+
+    将任意输入（int / str / None）转换为 [UNLOAD_TIMEOUT_MIN,
+    UNLOAD_TIMEOUT_MAX] 范围内的整数；非法或缺失时回退到默认值 1。
+    注意：0 是合法值（表示不等待、立即继续），因此不能用
+    ``value or DEFAULT`` 这种把 0 当作空值的写法。
+    """
+    if value is None or value == "":
+        timeout = UNLOAD_TIMEOUT_DEFAULT
+    else:
+        try:
+            timeout = int(value)
+        except (TypeError, ValueError):
+            timeout = UNLOAD_TIMEOUT_DEFAULT
+    if timeout < UNLOAD_TIMEOUT_MIN:
+        timeout = UNLOAD_TIMEOUT_DEFAULT
+    if timeout > UNLOAD_TIMEOUT_MAX:
+        timeout = UNLOAD_TIMEOUT_MAX
+    return timeout
 
 
 def _resolve_api_key(cfg):
@@ -125,6 +187,10 @@ class zyd232_LLMUnload(io.ComfyNode):
                         "Model name to unload (free input). Can be typed manually or selected from the "
                         "dropdown above. Leave empty to fall back to the model stored in the config preset."
                     )),
+                # --- Unload behavior --- #
+                # Unload Timeout 控件（与 LLM Text Generator 一致，作为唯一来源，
+                # 不再从 config preset 读取）。控件定义复用本模块的公用代码。
+                unload_timeout_input(),
                 # --- Passthrough (reroute-like) --- #
                 # optional=True：入口/出口可连接也可不连接，工作流都能跑通。
                 io.AnyType.Input("any_input", display_name="Any Input", optional=True,
@@ -137,7 +203,8 @@ class zyd232_LLMUnload(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, config_select, model_select, model, any_input=None) -> io.NodeOutput:
+    def execute(cls, config_select, model_select, model, unload_timeout,
+                any_input=None) -> io.NodeOutput:
         # --- Resolve the selected config preset ---
         safe_name = sanitize_config_name(config_select) if config_select else "Default"
         cfg = load_config_file(safe_name) or {}
@@ -150,12 +217,10 @@ class zyd232_LLMUnload(io.ComfyNode):
         unload_endpoint = (cfg.get("unload_endpoint") or "").strip()
         if not unload_endpoint:
             unload_endpoint = ""
-        try:
-            unload_timeout = int(cfg.get("unload_timeout") or 3)
-        except (TypeError, ValueError):
-            unload_timeout = 3
-        if unload_timeout < 1:
-            unload_timeout = 3
+
+        # Unload Timeout 来自节点自身的控件（与 LLM Text Generator 一致），
+        # 不再从 config preset 读取。解析逻辑复用本模块的公用代码。
+        unload_timeout = parse_unload_timeout(unload_timeout)
 
         api_key = _resolve_api_key(cfg)
 

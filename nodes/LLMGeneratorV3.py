@@ -68,6 +68,31 @@ from zyd232_llm_server_adapters import (  # noqa: E402
     unload_and_wait,
 )
 
+# ======================= Unload Timeout 公用代码（惰性加载） =======================
+# Unload Timeout 栏目的公用实现位于 LLMUnload.py（unload_timeout_input /
+# parse_unload_timeout）。由于 __init__.py 先加载本模块、后加载 LLMUnload.py，
+# 且 LLMUnload.py 在模块顶层又依赖本模块的 load_config_file 等函数，因此这里
+# 不能在本模块顶层直接导入 LLMUnload.py（会形成循环导入）。改为在 define_schema /
+# execute 被调用时（此时所有模块均已加载完毕）惰性加载并缓存，保证单一共享实例。
+_UNLOAD_TIMEOUT_MODULE = None
+
+
+def _get_unload_timeout_shared():
+    """惰性加载 LLMUnload.py 并返回其 Unload Timeout 公用代码。"""
+    global _UNLOAD_TIMEOUT_MODULE
+    if _UNLOAD_TIMEOUT_MODULE is None:
+        _UNLOAD_TIMEOUT_PATH = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "LLMUnload.py"
+        )
+        if "zyd232_nodes_LLMUnload" not in sys.modules:
+            _spec = _ilu.spec_from_file_location("zyd232_nodes_LLMUnload", _UNLOAD_TIMEOUT_PATH)
+            _mod = _ilu.module_from_spec(_spec)
+            sys.modules["zyd232_nodes_LLMUnload"] = _mod
+            _spec.loader.exec_module(_mod)
+        _UNLOAD_TIMEOUT_MODULE = sys.modules["zyd232_nodes_LLMUnload"]
+    return _UNLOAD_TIMEOUT_MODULE
+
+
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRESET_DIR = os.path.join(PLUGIN_ROOT, "presets")
 PRESET_FILE = os.path.join(PRESET_DIR, "llm_text_generator_presets.json")
@@ -777,9 +802,9 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 io.String.Input("unload_endpoint", default="auto",
                     display_name="Unload Endpoint",
                     tooltip="API endpoint path for unloading the model. 'auto' uses the endpoint preset for the selected Server Type; a custom value is used as-is."),
-                io.Int.Input("unload_timeout", default=3, min=1, max=60, step=1,
-                    display_name="Unload Timeout",
-                    tooltip="Max seconds to wait for the server to finish unloading before proceeding. Uses a hybrid strategy: sends the unload request synchronously, then polls /v1/models to confirm the model is released. A timeout prevents the node from blocking the workflow indefinitely if the server is slow."),
+                # Unload Timeout 控件定义复用 LLMUnload.py 中的公用代码
+                # （unload_timeout_input），保证与 LLM Unload 节点完全一致。
+                _get_unload_timeout_shared().unload_timeout_input(),
 
                 io.Boolean.Input("cache_prompt", default=False, label_on="Enable", label_off="Disable",
                     display_name="Cache Prompt",
@@ -1422,6 +1447,9 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         #     request synchronously, then poll /v1/models to confirm the model is
         #     released, bounded by unload_timeout so the node never blocks the
         #     workflow indefinitely.
+        # Unload Timeout 归一化复用 LLMUnload.py 中的公用代码
+        # （parse_unload_timeout），保证与 LLM Unload 节点行为一致。
+        unload_timeout = _get_unload_timeout_shared().parse_unload_timeout(unload_timeout)
         if _generation_was_stopped or unload_after_gen:
             try:
                 if _generation_was_stopped:
