@@ -30,7 +30,7 @@
             "server_type": { "name": "Server Type", "tooltip": "LLM server type. Determines how unload, reasoning_effort and payload are sent to the server. 'auto' probes the server automatically" },
             "cache_prompt": { "name": "Cache Prompt", "tooltip": "Cache prompts to speed up repeated requests" },
             "auto_lock": { "name": "Auto Lock", "tooltip": "When enabled, the Streaming Text panel automatically locks the result once generation completes" },
-            "video_fps": { "name": "Video FPS", "tooltip": "Sampling density per reference video. Assumes the source video is 24fps: keeps video_fps frames per 24 source frames (n = total * video_fps/24), then capped by max_video_frames. Default 1.0." },
+            "frame_step": { "name": "Frame Step", "tooltip": "Frame sampling interval per reference video: keeps 1 frame out of every frame_step source frames (n = ceil(total / frame_step)), then capped by max_video_frames. Default 1 (keep every frame)." },
             "max_video_frames": { "name": "Max Video Frames", "tooltip": "Maximum number of frames sent per video (to avoid exceeding context length). Set to -1 or 0 to disable the cap and send all frames." },
             "enable_audio": { "name": "Enable Audio", "tooltip": "Encode and send audio references to the API (only if the model supports audio)" },
             "use_locked": { "name": "Use Locked", "tooltip": "When true, skip LLM generation and return the locked result" },

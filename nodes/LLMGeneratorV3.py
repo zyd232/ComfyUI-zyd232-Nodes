@@ -173,7 +173,7 @@ SAVED_FIELDS = [
     "server_type",
     "cache_prompt",
     "auto_lock",
-    "video_fps",
+    "frame_step",
     "max_video_frames",
     "enable_audio",
 ]
@@ -815,9 +815,9 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                     tooltip="When enabled, the Streaming Text panel automatically locks the result once generation completes"),
 
                 # --- Multimodal sampling controls --- #
-                io.Float.Input("video_fps", default=1.0, min=0.1, max=30.0, step=0.1,
-                    display_name="Video FPS",
-                    tooltip="Sampling density per reference video. Assumes the source video is 24fps: keeps video_fps frames per 24 source frames (n = total * video_fps/24), then capped by max_video_frames. Default 1.0."),
+                io.Int.Input("frame_step", default=1, min=1,
+                    display_name="Frame Step",
+                    tooltip="Frame sampling interval per reference video: keeps 1 frame out of every frame_step source frames (n = ceil(total / frame_step)), then capped by max_video_frames. Default 1 (keep every frame)."),
                 io.Int.Input("max_video_frames", default=-1, min=-1,
                     display_name="Max Video Frames",
                     tooltip="Maximum number of frames sent per video (to avoid exceeding context length). Set to -1 or 0 to disable the cap and send all frames."),
@@ -993,7 +993,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         return 0
 
     @classmethod
-    def _collect_video_frames(cls, videos, video_fps, max_video_frames):
+    def _collect_video_frames(cls, videos, frame_step, max_video_frames):
         """Return list of (video_index, frame_index, frame_tensor, timestamp_seconds).
 
         ``video_index`` is the 0-based slot number parsed from the input key
@@ -1002,11 +1002,11 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         to both to produce 1-based labels (video_1_frame_1, ...).
 
         The video input is a raw frame tensor [B, H, W, C] (B = frame count) with no
-        frame-rate metadata, so ``video_fps`` is interpreted as a sampling density:
-        roughly ``video_fps`` frames are kept per second of video, capped by
-        ``max_video_frames``. When ``max_video_frames`` is -1 or 0 the cap is
-        disabled and all sampled frames are kept. Frames are sampled uniformly
-        across the clip.
+        frame-rate metadata, so ``frame_step`` is interpreted as a sampling
+        interval: 1 frame is kept out of every ``frame_step`` source frames
+        (frame 0, frame_step, 2*frame_step, ...), capped by ``max_video_frames``.
+        When ``max_video_frames`` is -1 or 0 the cap is disabled and all sampled
+        frames are kept.
         """
         result = []
         for key, video in (videos or {}).items():
@@ -1017,17 +1017,13 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
             total = video.shape[0]
             if total == 0:
                 continue
-            # Estimate the number of frames to keep based on sampling density.
-            # Without a known source fps we treat video_fps as "frames kept per
-            # 24 source frames" (a common video fps). When max_video_frames is
-            # -1 or 0 the cap is disabled and all sampled frames are kept.
-            density = max(0.1, float(video_fps))
-            n = int(round(total * min(1.0, density / 24.0)))
+            # Keep 1 frame out of every frame_step source frames. When
+            # max_video_frames is -1 or 0 the cap is disabled and all sampled
+            # frames are kept.
+            step = max(1, int(frame_step))
+            indices = list(range(0, total, step))
             if max_video_frames and max_video_frames > 0:
-                n = min(n, max_video_frames)
-            n = max(1, min(n, total))
-            # Uniformly sample n indices across the video
-            indices = np.linspace(0, total - 1, n).astype(int)
+                indices = indices[:max_video_frames]
             for frame_index, i in enumerate(indices):
                 result.append((video_index, frame_index, video[i], float(i)))
         # Sort by video slot index so video_0 frames come before video_1 frames
@@ -1045,7 +1041,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
                 unload_after_gen, unload_endpoint, unload_timeout,
                 server_type,
                 cache_prompt, auto_lock,
-                video_fps, max_video_frames, enable_audio,
+                frame_step, max_video_frames, enable_audio,
                 use_locked=False, locked_text="", locked_reasoning="",
                 images=None, videos=None, video_audios=None, audios=None) -> io.NodeOutput:
 
@@ -1151,7 +1147,7 @@ class zyd232_LLMGeneratorV3(io.ComfyNode):
         # Collect all media with their 0-based slot indices so we can label them
         # with 1-based tags for the LLM (image_0 -> image_1, video_0 -> video_1, ...).
         all_images = cls._collect_images(images)          # [(idx, tensor)]
-        video_frames = cls._collect_video_frames(videos, video_fps, max_video_frames)  # [(v_idx, f_idx, frame, ts)]
+        video_frames = cls._collect_video_frames(videos, frame_step, max_video_frames)  # [(v_idx, f_idx, frame, ts)]
 
         # Collect audio separately so video_audios and audios keep distinct labels.
         video_audio_items = []  # [(idx, audio)]

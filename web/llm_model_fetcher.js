@@ -49,7 +49,7 @@ const SAVED_WIDGETS = [
     "server_type",
     "cache_prompt",
     "auto_lock",
-    "video_fps",
+    "frame_step",
     "max_video_frames",
     "enable_audio"
 ];

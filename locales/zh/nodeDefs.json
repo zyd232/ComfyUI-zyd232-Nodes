@@ -30,7 +30,7 @@
             "server_type": { "name": "服务器类型", "tooltip": "LLM 服务器类型，决定卸载、reasoning_effort 和 payload 的发送方式。'auto' 自动探测服务器" },
             "cache_prompt": { "name": "缓存提示词", "tooltip": "缓存提示词以加速重复请求" },
             "auto_lock": { "name": "自动锁定结果", "tooltip": "启用后，生成完成后流式文本面板会自动锁定结果" },
-            "video_fps": { "name": "视频采样密度", "tooltip": "每个参考视频的采样密度。假设源视频为 24fps：每 24 个源帧保留 video_fps 帧（n = total * video_fps/24），然后受 max_video_frames 限制。默认 1.0。" },
+            "frame_step": { "name": "抽帧间隔", "tooltip": "每个参考视频的抽帧间隔：每 frame_step 个源帧取 1 帧（n = ceil(total / frame_step)），然后受 max_video_frames 限制。默认 1（保留每一帧）。" },
             "max_video_frames": { "name": "最大视频帧数", "tooltip": "每个视频发送的最大帧数（避免超出上下文长度）。设为 -1 或 0 可禁用上限并发送所有帧。" },
             "enable_audio": { "name": "启用音频", "tooltip": "编码并发送音频参考到 API（仅当模型支持音频时）" },
             "use_locked": { "name": "使用锁定结果", "tooltip": "为真时跳过 LLM 生成并返回锁定结果" },
