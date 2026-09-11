@@ -79,6 +79,16 @@
 
 `save_metadata` 开启时，提示词 / 工作流会被写入输出容器。`mp4` / `mov` 还会附加 `-movflags +faststart+use_metadata_tags`。GIF 输出不带元数据，因为该容器不支持。
 
+### 文件名占位符
+
+`filename_prefix` 支持日期占位符。由节点自身展开，因此通过 API 提交工作流时同样有效：
+
+- **核心写法** —— `%date:yyyy-MM-dd%` → `2026-09-12`，`%date:hhmmss%` → `010712`（24 小时制）。
+  格式串遵循 ComfyUI 语法：`d/dd` 日、`M/MM` 月、`h/hh` 时、`m/mm` 分、`s/ss` 秒、`yy/yyyy` 年。
+- **简写** —— `%date` / `%time`（闭合的 `%` 可省略），等价于 `%date:yyyy-MM-dd%` / `%time:HH-mm-ss%`。
+
+Windows 文件名非法字符会被替换为 `_`，写错的占位符也不会导致保存失败。
+
 ---
 
 ## 输出格式

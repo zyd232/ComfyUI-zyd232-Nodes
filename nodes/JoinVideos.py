@@ -14,16 +14,28 @@
 无损流拷贝（失败自动降级为重编码）；否则按所选格式重编码。
 """
 
+import importlib.util as _importlib_util
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import uuid
 from io import BytesIO
 
 import folder_paths
 from comfy_api.latest import InputImpl, io, ui
+
+# nodes/ 目录不是 Python 包（模块按文件路径在 __init__.py 中加载），因此这里按
+# 文件路径加载共享模块并缓存到 sys.modules，保证与其他节点共用同一个实例。
+if "zyd232_filename_tokens" not in sys.modules:
+    _TOKENS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "filename_tokens.py")
+    _tokens_spec = _importlib_util.spec_from_file_location("zyd232_filename_tokens", _TOKENS_PATH)
+    _tokens_mod = _importlib_util.module_from_spec(_tokens_spec)
+    sys.modules["zyd232_filename_tokens"] = _tokens_mod
+    _tokens_spec.loader.exec_module(_tokens_mod)
+_filename_tokens = sys.modules["zyd232_filename_tokens"]
 
 _ENCODE_ARGS = ("utf-8", "replace")
 _MAX_SLOTS = 32  # 与 LLM Text Generator 的自增加上限保持一致
@@ -337,7 +349,8 @@ class zyd232_JoinVideos(io.ComfyNode):
                             tooltip="A ComfyUI VIDEO to merge"),
                         prefix="video_", min=0, max=_MAX_SLOTS)),
                 io.String.Input("filename_prefix", default="zyd232_merged",
-                    display_name="Filename Prefix", tooltip="Output filename prefix"),
+                    display_name="Filename Prefix",
+                    tooltip="Output filename prefix. Supports date placeholders: the core style %date:yyyy-MM-dd%, or the shorthand %date / %time."),
                 io.Float.Input("frame_rate", default=24.0, min=1.0, max=240.0, step=0.1,
                     display_name="Frame Rate",
                     tooltip="Frame rate used when re-encoding and reported in the preview. "
@@ -394,8 +407,10 @@ class zyd232_JoinVideos(io.ComfyNode):
                     os.path.join(work_dir, "metadata.txt"), cls.hidden, save_metadata)
 
             final_dir = output_dir if save_output else temp_dir
+            prefix = _filename_tokens.prepare_path_prefix(
+                filename_prefix, default="zyd232_merged")
             full_folder, name, counter, subfolder, _ = folder_paths.get_save_image_path(
-                filename_prefix or "zyd232_merged", final_dir)
+                prefix, final_dir)
             out_path = os.path.join(full_folder, "%s_%05d.%s" % (name, counter, spec["ext"]))
 
             if pingpong:

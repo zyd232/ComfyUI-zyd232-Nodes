@@ -1,11 +1,23 @@
 import os.path
 import folder_paths
 import datetime
+import importlib.util as _importlib_util
 import random
 import json
+import sys
 import numpy as np
 from PIL.PngImagePlugin import Image, PngInfo
 from comfy_api.latest import io
+
+# nodes/ 目录不是 Python 包（模块按文件路径在 __init__.py 中加载），因此这里按
+# 文件路径加载共享模块并缓存到 sys.modules，保证与其他节点共用同一个实例。
+if "zyd232_filename_tokens" not in sys.modules:
+    _TOKENS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "filename_tokens.py")
+    _tokens_spec = _importlib_util.spec_from_file_location("zyd232_filename_tokens", _TOKENS_PATH)
+    _tokens_mod = _importlib_util.module_from_spec(_tokens_spec)
+    sys.modules["zyd232_filename_tokens"] = _tokens_mod
+    _tokens_spec.loader.exec_module(_tokens_mod)
+_filename_tokens = sys.modules["zyd232_filename_tokens"]
 
 
 def generate_random_name(prefix: str, suffix: str, length: int) -> str:
@@ -44,9 +56,11 @@ class zyd232_SavePreviewImages(io.ComfyNode):
                     display_name="Write PNG Metadata", label_on="Yes", label_off="No",
                     tooltip="Whether to write prompt info into PNG metadata"),
                 io.String.Input("custom_path", default="",
-                    display_name="Custom Path", tooltip="Custom save path, supports %date and %time placeholders"),
+                    display_name="Custom Path",
+                    tooltip="Custom save path. Supports date placeholders: the core style %date:yyyy-MM-dd%, or the shorthand %date / %time."),
                 io.String.Input("filename_prefix", default="ComfyUI_",
-                    display_name="Filename Prefix", tooltip="Filename prefix, supports %date and %time placeholders"),
+                    display_name="Filename Prefix",
+                    tooltip="Filename prefix. Supports date placeholders: the core style %date:yyyy-MM-dd%, or the shorthand %date / %time."),
                 io.Combo.Input("timestamp", options=["second", "millisecond", "None"],
                     display_name="Timestamp", tooltip="Filename timestamp mode"),
             ],
@@ -61,10 +75,13 @@ class zyd232_SavePreviewImages(io.ComfyNode):
         extra_pnginfo = getattr(cls.hidden, "extra_pnginfo", None)
         output_dir = folder_paths.get_output_directory()
         now = datetime.datetime.now()
-        custom_path = custom_path.replace("%date", now.strftime("%Y-%m-%d"))
-        custom_path = custom_path.replace("%time", now.strftime("%H-%M-%S"))
-        filename_prefix = filename_prefix.replace("%date", now.strftime("%Y-%m-%d"))
-        filename_prefix = filename_prefix.replace("%time", now.strftime("%H-%M-%S"))
+        # 占位符展开与文件名清洗统一交给共享模块（与 Join Videos 同一实现）：
+        # 既支持核心写法 %date:yyyy-MM-dd%，也支持本插件的简写 %date / %time，
+        # 全部在后端完成，因此界面 / API / MCP 三种提交途径行为一致。
+        # custom_path 可能是绝对路径（盘符含 ':'），所以只展开占位符、不做清洗。
+        custom_path = _filename_tokens.expand_placeholders(custom_path, now=now)
+        filename_prefix = _filename_tokens.prepare_path_prefix(
+            filename_prefix, now=now, default="ComfyUI", label="filename_prefix")
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, output_dir, images[0].shape[1], images[0].shape[0])
         results = list()
         temp_dir = folder_paths.get_temp_directory()

@@ -51,7 +51,7 @@ No data output. The node returns a preview image list via UI (`type: "temp"`).
 
 ### Filename & timestamp
 
-- **filename_prefix** supports `%date` (`YYYY-MM-DD`) and `%time` (`HH-MM-SS`) placeholders.
+- **filename_prefix** supports date placeholders — the core style `%date:yyyy-MM-dd%` / `%date:hhmmss%`, or the shorthand `%date` (`YYYY-MM-DD`) / `%time` (`HH-MM-SS`). Illegal Windows filename characters are replaced with `_`.
 - **timestamp** determines the filename suffix:
   - `second` — appends `YYYY-MM-DD_HH-MM-SS`
   - `millisecond` — appends `YYYY-MM-DD_HH-MM-SS-fff`
@@ -60,7 +60,7 @@ No data output. The node returns a preview image list via UI (`type: "temp"`).
 
 ### Custom path
 
-- **custom_path** supports `%date` and `%time` placeholders.
+- **custom_path** supports the same date placeholders — `%date:yyyy-MM-dd%` or the shorthand `%date` / `%time`.
 - The directory is created automatically if it does not exist.
 - Leave empty to save to the ComfyUI default output directory.
 

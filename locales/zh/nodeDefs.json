@@ -80,8 +80,8 @@
             "format": { "name": "格式", "tooltip": "保存的图片格式" },
             "quality": { "name": "质量", "tooltip": "图片质量（jpg 有效）" },
             "meta_data_png": { "name": "写入 PNG 元数据", "tooltip": "是否将提示词等信息写入 PNG 元数据" },
-            "custom_path": { "name": "自定义路径", "tooltip": "自定义保存路径，支持 %date 和 %time 占位符" },
-            "filename_prefix": { "name": "文件名前缀", "tooltip": "文件名前缀，支持 %date 和 %time 占位符" },
+            "custom_path": { "name": "自定义路径", "tooltip": "自定义保存路径。支持日期占位符：核心写法 %date:yyyy-MM-dd%，或简写 %date / %time。" },
+            "filename_prefix": { "name": "文件名前缀", "tooltip": "文件名前缀。支持日期占位符：核心写法 %date:yyyy-MM-dd%，或简写 %date / %time。" },
             "timestamp": { "name": "时间戳", "tooltip": "文件名时间戳格式" }
         }
     },
@@ -91,7 +91,7 @@
         "inputs": {
             "filenames": { "name": "文件名", "tooltip": "要合并的视频文件路径。槽位为动态输入（Autogrow），可自由增加；单个槽位也可用逗号/换行分隔多个路径。" },
             "videos": { "name": "视频", "tooltip": "要合并的 VIDEO 输入，排在 filenames 组之后。槽位为动态输入（Autogrow）。" },
-            "filename_prefix": { "name": "文件名前缀", "tooltip": "输出文件名前缀" },
+            "filename_prefix": { "name": "文件名前缀", "tooltip": "输出文件名前缀。支持日期占位符：核心写法 %date:yyyy-MM-dd%，或简写 %date / %time。" },
             "frame_rate": { "name": "帧率", "tooltip": "重编码时使用的帧率，同时显示在预览信息中。无损流拷贝会保留各源自身的时长与帧率。" },
             "format": { "name": "格式", "tooltip": "输出封装 / 编码格式" },
             "crf": { "name": "压缩质量 (CRF)", "tooltip": "数值越小画质越好、文件越大。-1 表示不改动质量，可走无损流拷贝路径。可用范围与默认值取决于所选格式（H.264/H.265 为 0-51，VP9/AV1 为 0-63；ProRes 忽略 CRF）。" },

@@ -79,6 +79,16 @@ If a stream copy is attempted but fails (for example the segments' codecs have d
 
 When `save_metadata` is on, the prompt / workflow is embedded into the container. For `mp4` / `mov` the node also writes `-movflags +faststart+use_metadata_tags`. GIF output carries no metadata, because the container does not support it.
 
+### Filename placeholders
+
+`filename_prefix` supports date placeholders. The node expands them itself, so they also work when the workflow is submitted through the API:
+
+- **Core style** — `%date:yyyy-MM-dd%` → `2026-09-12`, `%date:hhmmss%` → `010712` (24-hour).
+  The format string follows ComfyUI's syntax: `d/dd` day, `M/MM` month, `h/hh` hour, `m/mm` minute, `s/ss` second, `yy/yyyy` year.
+- **Shorthand** — `%date` / `%time` (the closing `%` is optional), equal to `%date:yyyy-MM-dd%` / `%time:HH-mm-ss%`.
+
+Any character that is illegal in a Windows filename is replaced with `_`, so a stray placeholder can never make the save fail.
+
 ---
 
 ## Formats

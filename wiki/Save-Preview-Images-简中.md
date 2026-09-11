@@ -51,7 +51,7 @@
 
 ### 文件名与时间戳
 
-- **filename_prefix** 支持 `%date`（`YYYY-MM-DD`）和 `%time`（`HH-MM-SS`）占位符。
+- **filename_prefix** 支持日期占位符 —— 核心写法 `%date:yyyy-MM-dd%` / `%date:hhmmss%`，或简写 `%date`（`YYYY-MM-DD`） / `%time`（`HH-MM-SS`）。Windows 文件名非法字符会被替换为 `_`。
 - **timestamp** 决定文件名后缀：
   - `second` — 追加 `YYYY-MM-DD_HH-MM-SS`
   - `millisecond` — 追加 `YYYY-MM-DD_HH-MM-SS-fff`
@@ -60,7 +60,7 @@
 
 ### 自定义路径
 
-- **custom_path** 支持 `%date` 和 `%time` 占位符。
+- **custom_path** 支持同样的日期占位符 —— `%date:yyyy-MM-dd%` 或简写 `%date` / `%time`。
 - 若路径不存在会自动创建。
 - 留空则保存到 ComfyUI 默认输出目录。
 
