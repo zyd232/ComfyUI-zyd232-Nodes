@@ -36,7 +36,7 @@ jobs:
         run: |
           # Remove existing wiki pages (except Home.md which we will overwrite)
           find wiki-repo -type f -name "*.md" -delete
-          # Copy all wiki markdown files (flat structure: English + zh-CN with -zh-CN suffix)
+          # Copy all wiki markdown files (flat structure: English + Simplified Chinese with -简中 suffix)
           cp wiki/*.md wiki-repo/
           # Ensure Home.md exists as the wiki landing page
           if [ ! -f wiki-repo/Home.md ]; then

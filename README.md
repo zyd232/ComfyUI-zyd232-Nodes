@@ -28,11 +28,12 @@ Restart ComfyUI. The nodes will appear under the **zyd232 Nodes** category.
 | Node | Category | Description | Docs |
 |------|----------|-------------|------|
 | **LLM Text Generator** | `zyd232 Nodes/LLM` | Connect to any OpenAI-compatible LLM service for text generation. Supports multiple images/videos/audio, streaming display, config presets, and result locking. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/LLM-Text-Generator) |
-| **LLM Unload** | `zyd232 Nodes/LLM` | Send an unload signal to the LLM Server to release the model from VRAM. All parameters come from the config preset saved by the LLM Text Generator node. Supports selecting a specific model to unload. | |
+| **LLM Unload** | `zyd232 Nodes/LLM` | Send an unload signal to the LLM Server to release the model from VRAM. All parameters come from the config preset saved by the LLM Text Generator node. Supports selecting a specific model to unload. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/LLM-Unload) |
 | **Images Pixels Compare** | `zyd232 Nodes` | Compare two images at the pixel level to check if they are identical; outputs a boolean. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Images-Pixels-Compare) |
 | **Save Preview Images** | `zyd232 Nodes` | Save images (PNG/JPG) with quality, metadata, custom path, workflow JSON, and preview options. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Save-Preview-Images) |
 | **Mask Batch Blend** | `zyd232 Nodes` | Blend multiple masks into one using add / max / average operations. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Mask-Batch-Blend) |
 | **Merge LoRA Stacks** | `zyd232 Nodes` | Merge multiple lora_stack inputs into a single lora_stack output. The left-side inputs are dynamic (Autogrow) and can be added freely. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Merge-LoRA-Stacks) |
+| **Join Videos** | `zyd232 Nodes` | Join multiple videos into one, in input order. Accepts file paths and VIDEO inputs through two dynamic (Autogrow) groups; outputs VHS_FILENAMES and VIDEO, joining losslessly when the segments already match the target format. | [📄 Docs](https://github.com/zyd232/ComfyUI-zyd232-Nodes/wiki/Join-Videos) |
 
 ---
 
