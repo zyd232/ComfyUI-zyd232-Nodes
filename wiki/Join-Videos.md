@@ -15,7 +15,7 @@ The **Join Videos** node concatenates multiple videos into one, **in input order
 - **`filenames`** — video files on disk (each slot holds one path, or several paths separated by commas / newlines)
 - **`videos`** — ComfyUI `VIDEO` objects
 
-The `filenames` group is merged first, then the `videos` group. The node outputs both a `VHS_FILENAMES` value (usable by Video Helper Suite nodes) and a `VIDEO` value, and previews the merged result directly on the node itself.
+The `filenames` group is merged first, then the `videos` group. The node outputs both a `VHS_FILENAMES` value (usable by [Video Helper Suite](https://github.com/kosinkadink/ComfyUI-VideoHelperSuite) nodes) and a `VIDEO` value, and previews the merged result directly on the node itself.
 
 - **Class name**: `zyd232_JoinVideos`
 - **Category**: `zyd232 Nodes`
@@ -46,7 +46,7 @@ The `filenames` group is merged first, then the `videos` group. The node outputs
 
 | Output | Type | Description |
 |--------|------|-------------|
-| **filenames** | `VHS_FILENAMES` | `(save_output, [path])` — the standard Video Helper Suite filenames value, usable by other VHS nodes. |
+| **filenames** | `VHS_FILENAMES` | `(save_output, [path])` — the standard [Video Helper Suite](https://github.com/kosinkadink/ComfyUI-VideoHelperSuite) filenames value, usable by other VHS nodes. |
 | **video** | `VIDEO` | The merged video as a ComfyUI `VIDEO`, usable by core video nodes. |
 
 ---
@@ -109,7 +109,7 @@ When a `crf` value is supplied it is clamped to the selected format's range; `cr
 
 - **Join the per-segment videos of a loop**: feed the filename string accumulated by a loop's carry (for example the `forLoopEnd` node of ComfyUI-Easy-Use, or `VHS Select Filename` outputs collected by a loop) into the `filenames` group. Every segment is merged in loop order. Segments written by `Video Combine 🎥🅥🅗🅢` share the same container and codec, so the join stays lossless as long as `crf` is left at `-1`.
 - **Mixing sources**: use `filenames` for videos that are already on disk and `videos` for videos produced inside the graph. Everything on disk is merged first.
-- **Downstream use**: wire `filenames` into other Video Helper Suite nodes (for example `Prune Outputs`), or wire `video` into core video nodes.
+- **Downstream use**: wire `filenames` into other [Video Helper Suite](https://github.com/kosinkadink/ComfyUI-VideoHelperSuite) nodes (for example `Prune Outputs`), or wire `video` into core video nodes.
 
 ---
 

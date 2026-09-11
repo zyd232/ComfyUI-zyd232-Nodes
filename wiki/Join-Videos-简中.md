@@ -15,7 +15,7 @@
 - **`filenames`** —— 磁盘上的视频文件（每槽一个路径，也可用逗号 / 换行分隔多个路径）
 - **`videos`** —— ComfyUI 的 `VIDEO` 对象
 
-合并顺序为先 `filenames` 组、再 `videos` 组。节点同时输出 `VHS_FILENAMES`（可供 Video Helper Suite 节点使用）与 `VIDEO`，并在节点上直接预览合成结果。
+合并顺序为先 `filenames` 组、再 `videos` 组。节点同时输出 `VHS_FILENAMES`（可供 [Video Helper Suite](https://github.com/kosinkadink/ComfyUI-VideoHelperSuite) 节点使用）与 `VIDEO`，并在节点上直接预览合成结果。
 
 - **类名**：`zyd232_JoinVideos`
 - **类别**：`zyd232 Nodes`
@@ -46,7 +46,7 @@
 
 | 输出 | 类型 | 说明 |
 |------|------|------|
-| **filenames** | `VHS_FILENAMES` | `(save_output, [路径])`，Video Helper Suite 的标准文件名返回值，可供其他 VHS 节点使用 |
+| **filenames** | `VHS_FILENAMES` | `(save_output, [路径])`，[Video Helper Suite](https://github.com/kosinkadink/ComfyUI-VideoHelperSuite) 的标准文件名返回值，可供其他 VHS 节点使用 |
 | **video** | `VIDEO` | 合成结果（ComfyUI `VIDEO` 类型），可供核心视频节点使用 |
 
 ---
@@ -109,7 +109,7 @@
 
 - **拼接循环产生的分段视频**：把循环 carry 累加出来的文件名字符串（例如 ComfyUI-Easy-Use 的 `forLoopEnd` 节点，或循环收集的多个 `VHS Select Filename` 输出）接到 `filenames` 组，各分段就会按循环顺序合并。由 `Video Combine 🎥🅥🅗🅢` 写出的分段封装与编码一致，只要 `crf` 保持 `-1`，拼接即为无损。
 - **混合来源**：磁盘上已有的视频走 `filenames`，图内刚生成的视频走 `videos`；磁盘上的会先被合并。
-- **下游使用**：把 `filenames` 接到其他 Video Helper Suite 节点（例如 `Prune Outputs`），或把 `video` 接到核心视频节点。
+- **下游使用**：把 `filenames` 接到其他 [Video Helper Suite](https://github.com/kosinkadink/ComfyUI-VideoHelperSuite) 节点（例如 `Prune Outputs`），或把 `video` 接到核心视频节点。
 
 ---
 

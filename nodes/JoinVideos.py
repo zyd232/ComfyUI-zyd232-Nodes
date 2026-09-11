@@ -212,23 +212,36 @@ def _encode_args(spec, crf, frame_rate, lead_video_filter=None, lead_audio_filte
     return args
 
 
-def _metadata_args(spec, hidden, save_metadata):
-    """save_metadata 打开时把 prompt / workflow 写进容器元数据。"""
-    if not spec.get("meta", True):
-        return []
-    args = []
-    if spec.get("movflags"):
-        args += ["-movflags", "+faststart+use_metadata_tags" if save_metadata else "+faststart"]
+def _escape_metadata(key, value):
+    """按 FFMETADATA1 规范转义 key/value（与 Video Helper Suite 同一套规则）。"""
+    text = str(value)
+    for char in ("\\", ";", "#", "="):
+        text = text.replace(char, "\\" + char)
+    text = text.replace("\n", "\\\n")
+    return "%s=%s" % (key, text)
+
+
+def _write_metadata_file(path, hidden, save_metadata):
+    """把 prompt / workflow 写成 FFMETADATA1 文件，返回其路径（未启用则 None）。
+
+    必须走文件、不能走 ``-metadata key=value`` 命令行参数：完整工作流 JSON 动辄
+    上百 KB，而 Windows 的 CreateProcess 命令行上限是 32767 字符，直接作为参数
+    传入会抛 ``FileNotFoundError: [WinError 206] 文件名或扩展名太长``。
+    """
     if not save_metadata or hidden is None:
-        return args
+        return None
+    entries = []
     prompt = getattr(hidden, "prompt", None)
-    pnginfo = getattr(hidden, "extra_pnginfo", None)
     if prompt is not None:
-        args += ["-metadata", "prompt=" + json.dumps(prompt)]
-    if pnginfo:
-        for key, value in pnginfo.items():
-            args += ["-metadata", "%s=%s" % (key, json.dumps(value))]
-    return args
+        entries.append(_escape_metadata("prompt", json.dumps(prompt)))
+    for key, value in (getattr(hidden, "extra_pnginfo", None) or {}).items():
+        entries.append(_escape_metadata(key, json.dumps(value)))
+    if not entries:
+        return None
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(";FFMETADATA1\n")
+        handle.write("\n".join(entries) + "\n")
+    return path
 
 
 def _can_stream_copy(files, spec, crf, ignore_crf=False):
@@ -242,7 +255,7 @@ def _can_stream_copy(files, spec, crf, ignore_crf=False):
 
 
 def _concat(ffmpeg, files, out_path, list_path, spec, crf, frame_rate,
-            loop_count, metadata_args, copy, reverse=False):
+            loop_count, metadata_path, copy, reverse=False):
     """用 concat demuxer 把 files 写成 out_path。"""
     _write_concat_list(files, list_path)
     args = [ffmpeg, "-v", "error", "-y", "-f", "concat", "-safe", "0"]
@@ -250,6 +263,9 @@ def _concat(ffmpeg, files, out_path, list_path, spec, crf, frame_rate,
     if loops:
         args += ["-stream_loop", str(loops)]
     args += ["-i", list_path]
+    if metadata_path:
+        # 元数据作为第二个输入传入并用 -map_metadata 选中，命令行长度与 JSON 体积无关。
+        args += ["-i", metadata_path, "-map_metadata", "1"]
     if copy:
         args += ["-c", "copy"]
     else:
@@ -258,7 +274,8 @@ def _concat(ffmpeg, files, out_path, list_path, spec, crf, frame_rate,
             lead_video_filter="reverse" if reverse else None,
             lead_audio_filter="areverse" if reverse else None,
         )
-    args += metadata_args
+    if spec.get("movflags"):
+        args += ["-movflags", "+faststart+use_metadata_tags" if metadata_path else "+faststart"]
     args += [out_path]
     env = os.environ.copy()
     env.update(spec.get("env", {}))
@@ -266,17 +283,17 @@ def _concat(ffmpeg, files, out_path, list_path, spec, crf, frame_rate,
 
 
 def _merge(ffmpeg, files, out_path, list_path, spec, crf, frame_rate,
-           loop_count, metadata_args, copy_pref):
+           loop_count, metadata_path, copy_pref):
     """先试无损流拷贝，失败则打印告警并降级为重编码。"""
     if copy_pref:
         try:
             _concat(ffmpeg, files, out_path, list_path, spec, crf, frame_rate,
-                    loop_count, metadata_args, True)
+                    loop_count, metadata_path, True)
             return
         except RuntimeError as exc:
             print("[zyd232 JoinVideos] stream copy failed, falling back to re-encode.\n%s" % exc)
     _concat(ffmpeg, files, out_path, list_path, spec, crf, frame_rate,
-            loop_count, metadata_args, False)
+            loop_count, metadata_path, False)
 
 
 class zyd232_JoinVideos(io.ComfyNode):
@@ -371,7 +388,10 @@ class zyd232_JoinVideos(io.ComfyNode):
 
             ffmpeg = _find_ffmpeg()
             list_path = os.path.join(work_dir, "concat_list.txt")
-            metadata_args = _metadata_args(spec, cls.hidden, save_metadata)
+            metadata_path = None
+            if spec.get("meta", True):
+                metadata_path = _write_metadata_file(
+                    os.path.join(work_dir, "metadata.txt"), cls.hidden, save_metadata)
 
             final_dir = output_dir if save_output else temp_dir
             full_folder, name, counter, subfolder, _ = folder_paths.get_save_image_path(
@@ -381,17 +401,17 @@ class zyd232_JoinVideos(io.ComfyNode):
             if pingpong:
                 # 先把所有源并成一段（同封装则无损），再接上它的倒放版本。
                 merged = os.path.join(work_dir, "merged.%s" % spec["ext"])
-                _merge(ffmpeg, sources, merged, list_path, spec, crf, frame_rate, 0, [],
+                _merge(ffmpeg, sources, merged, list_path, spec, crf, frame_rate, 0, None,
                        _can_stream_copy(sources, spec, crf, ignore_crf=True))
                 reversed_path = os.path.join(work_dir, "reversed.%s" % spec["ext"])
                 _concat(ffmpeg, [merged], reversed_path, list_path, spec, crf, frame_rate,
-                        0, [], False, reverse=True)
-                # 两段同封装，最终拼接可无损；loop 在这一步生效。
+                        0, None, False, reverse=True)
+                # 两段同封装，最终拼接可无损；loop 与元数据在这一步生效。
                 _merge(ffmpeg, [merged, reversed_path], out_path, list_path, spec, crf,
-                       frame_rate, loop_count, metadata_args, True)
+                       frame_rate, loop_count, metadata_path, True)
             else:
                 _merge(ffmpeg, sources, out_path, list_path, spec, crf, frame_rate,
-                       loop_count, metadata_args, _can_stream_copy(sources, spec, crf))
+                       loop_count, metadata_path, _can_stream_copy(sources, spec, crf))
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
