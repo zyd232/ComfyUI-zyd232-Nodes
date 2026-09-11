@@ -45,6 +45,7 @@
             "config_select": { "name": "Config Preset", "tooltip": "Choose a saved server preset. All unload parameters (base_url, api_key, model, server_type, unload_endpoint, unload_timeout) are read from this preset, which is saved by the LLM Text Generator node." },
             "model_select": { "name": "Model Select", "tooltip": "Dropdown to select the model to unload. Selection fills the 'model' field below." },
             "model": { "name": "Model", "tooltip": "Model name to unload (free input). Can be typed manually or selected from the dropdown above. Leave empty to fall back to the model stored in the config preset." },
+            "unload_timeout": { "name": "Unload Timeout", "tooltip": "Max seconds to wait for the server to finish unloading. Uses a hybrid strategy: sends the unload request synchronously, then polls /v1/models to confirm the model is released, preventing downstream nodes from OOMing while the server is still unloading. The timeout prevents the node from blocking the workflow indefinitely if the server is slow." },
             "any_input": { "name": "Any Input", "tooltip": "Optional. Any value passed through unchanged. Lets this node be inserted anywhere in the workflow." }
         },
         "outputs": {
@@ -82,6 +83,36 @@
             "custom_path": { "name": "Custom Path", "tooltip": "Custom save path, supports %date and %time placeholders" },
             "filename_prefix": { "name": "Filename Prefix", "tooltip": "Filename prefix, supports %date and %time placeholders" },
             "timestamp": { "name": "Timestamp", "tooltip": "Filename timestamp mode" }
+        }
+    },
+    "zyd232_JoinVideos": {
+        "display_name": "Join Videos",
+        "description": "Join multiple videos into one, in input order. Both input groups autogrow: 'filenames' takes file paths (one per slot, or several separated by commas/newlines) and 'videos' takes VIDEO inputs; filenames are merged first, then videos. When every source already matches the target container and the quality is left untouched (crf = -1), the segments are joined with a lossless ffmpeg stream copy (falling back to a re-encode if the copy fails); otherwise the result is re-encoded with the selected format.",
+        "inputs": {
+            "filenames": { "name": "Filenames", "tooltip": "Video file paths to merge. The slots are dynamic (Autogrow) and can be added freely; a slot may also hold several paths separated by commas or newlines." },
+            "videos": { "name": "Videos", "tooltip": "VIDEO inputs to merge, appended after the filenames group. The slots are dynamic (Autogrow)." },
+            "filename_prefix": { "name": "Filename Prefix", "tooltip": "Output filename prefix" },
+            "frame_rate": { "name": "Frame Rate", "tooltip": "Frame rate used when re-encoding and reported in the preview. A lossless stream copy keeps each source's own timing." },
+            "format": { "name": "Format", "tooltip": "Output container / codec" },
+            "crf": { "name": "Quality (CRF)", "tooltip": "Lower is better quality and a bigger file. -1 keeps the quality untouched, which enables the lossless stream-copy path. The usable range and the default value depend on the selected format (0-51 for H.264/H.265, 0-63 for VP9/AV1; ProRes ignores CRF)." },
+            "save_metadata": { "name": "Save Metadata", "tooltip": "Embed the prompt / workflow metadata into the output container" },
+            "pingpong": { "name": "Pingpong", "tooltip": "Append a reversed copy of the merged video (play forward, then backward). The reversed half is re-encoded." },
+            "loop_count": { "name": "Loop Count", "tooltip": "How many extra times to repeat the merged video (0 = play once)" },
+            "save_output": { "name": "Save Output", "tooltip": "Save into the output directory. When off, the result goes to the temp directory." }
+        },
+        "outputs": {
+            "filenames": { "name": "filenames", "tooltip": "The merged video as VHS_FILENAMES, usable by VHS nodes." },
+            "video": { "name": "video", "tooltip": "The merged video as a ComfyUI VIDEO." }
+        }
+    },
+    "zyd232 MergeLoraStacks": {
+        "display_name": "Merge LoRA Stacks",
+        "description": "Merge multiple lora_stack inputs into a single lora_stack output. The left-side lora_stack inputs are dynamic (Autogrow) and can be added/removed freely. Entries with strength_model == 0 are filtered out.",
+        "inputs": {
+            "lora_stacks": { "name": "LoRA Stacks", "tooltip": "The lora_stack inputs to merge. The left-side inputs are dynamic (Autogrow) and can be added or removed freely." }
+        },
+        "outputs": {
+            "lora_stack": { "name": "lora_stack", "tooltip": "The merged lora_stack (list of (lora_name, strength_model, strength_clip) tuples), with strength_model == 0 entries filtered out." }
         }
     }
 }

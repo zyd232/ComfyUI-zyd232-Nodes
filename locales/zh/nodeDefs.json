@@ -45,6 +45,7 @@
             "config_select": { "name": "配置预设", "tooltip": "选择已保存的服务器预设。所有卸载参数（base_url、api_key、model、server_type、unload_endpoint、unload_timeout）均从该预设读取，该预设由 LLM Text Generator 节点保存。" },
             "model_select": { "name": "模型选择", "tooltip": "下拉选择要卸载的模型。选择后将填入下方的 'model' 字段。" },
             "model": { "name": "模型", "tooltip": "要卸载的模型名称（自由输入）。可手动输入或从上方下拉框选择。留空则回退到 config preset 中保存的模型。" },
+            "unload_timeout": { "name": "卸载超时", "tooltip": "等待服务端完成卸载的最大秒数。采用混合策略：先同步发送卸载请求，再轮询 /v1/models 确认模型已释放，确保后续节点不会因服务端尚未卸载完成而 OOM。设置超时是为了防止服务端卸载缓慢时节点无限阻塞工作流。" },
             "any_input": { "name": "任意输入", "tooltip": "可选。任意值，原样透传。使该节点可插入工作流任意位置。" }
         },
         "outputs": {
@@ -82,6 +83,36 @@
             "custom_path": { "name": "自定义路径", "tooltip": "自定义保存路径，支持 %date 和 %time 占位符" },
             "filename_prefix": { "name": "文件名前缀", "tooltip": "文件名前缀，支持 %date 和 %time 占位符" },
             "timestamp": { "name": "时间戳", "tooltip": "文件名时间戳格式" }
+        }
+    },
+    "zyd232_JoinVideos": {
+        "display_name": "视频拼接",
+        "description": "按输入顺序把多段视频合并为一段。两组输入均可自增加：'filenames' 收文件路径（每槽一个，也可用逗号/换行分隔多个），'videos' 收 VIDEO 输入；先合并 filenames 组，再合并 videos 组。当所有源与目标封装一致且质量未被改动（crf = -1）时，采用 ffmpeg 无损流拷贝拼接（失败则自动降级为重编码）；否则按所选格式重编码。",
+        "inputs": {
+            "filenames": { "name": "文件名", "tooltip": "要合并的视频文件路径。槽位为动态输入（Autogrow），可自由增加；单个槽位也可用逗号/换行分隔多个路径。" },
+            "videos": { "name": "视频", "tooltip": "要合并的 VIDEO 输入，排在 filenames 组之后。槽位为动态输入（Autogrow）。" },
+            "filename_prefix": { "name": "文件名前缀", "tooltip": "输出文件名前缀" },
+            "frame_rate": { "name": "帧率", "tooltip": "重编码时使用的帧率，同时显示在预览信息中。无损流拷贝会保留各源自身的时长与帧率。" },
+            "format": { "name": "格式", "tooltip": "输出封装 / 编码格式" },
+            "crf": { "name": "压缩质量 (CRF)", "tooltip": "数值越小画质越好、文件越大。-1 表示不改动质量，可走无损流拷贝路径。可用范围与默认值取决于所选格式（H.264/H.265 为 0-51，VP9/AV1 为 0-63；ProRes 忽略 CRF）。" },
+            "save_metadata": { "name": "保存元数据", "tooltip": "将提示词 / 工作流元数据写入输出容器" },
+            "pingpong": { "name": "乒乓循环", "tooltip": "在合成结果后追加一段倒放版本（正放再接倒放）。倒放那一段会被重新编码。" },
+            "loop_count": { "name": "循环次数", "tooltip": "合成视频额外重复播放的次数（0 表示只播放一次）" },
+            "save_output": { "name": "保存输出", "tooltip": "保存到输出目录；关闭时输出到临时目录。" }
+        },
+        "outputs": {
+            "filenames": { "name": "文件名", "tooltip": "合并结果（VHS_FILENAMES），可继续接给 VHS 节点使用。" },
+            "video": { "name": "视频", "tooltip": "合并结果（ComfyUI VIDEO 类型）。" }
+        }
+    },
+    "zyd232 MergeLoraStacks": {
+        "display_name": "合并 LoRA 栈",
+        "description": "将多个 lora_stack 输入合并为一个 lora_stack 输出。左侧的 lora_stack 输入为动态输入（Autogrow），可自由增加或减少；strength_model == 0 的条目会被过滤掉。",
+        "inputs": {
+            "lora_stacks": { "name": "LoRA 栈", "tooltip": "要合并的 lora_stack 输入。左侧输入为动态输入（Autogrow），可自由增加或减少。" }
+        },
+        "outputs": {
+            "lora_stack": { "name": "LoRA 栈", "tooltip": "合并后的 lora_stack（(lora_name, strength_model, strength_clip) 元组列表），strength_model == 0 的条目已被过滤。" }
         }
     }
 }

@@ -31,7 +31,7 @@ class zyd232_MergeLoraStacks(io.ComfyNode):
                         prefix="lora_stack_", min=0, max=100)),
             ],
             outputs=[
-                io.Custom("LORA_STACK").Output(display_name="lora_stack"),
+                io.Custom("LORA_STACK").Output("lora_stack", display_name="lora_stack"),
             ],
         )
 

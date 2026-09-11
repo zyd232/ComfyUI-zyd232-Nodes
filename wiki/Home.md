@@ -17,10 +17,12 @@ Welcome to the **ComfyUI zyd232 Nodes** Wiki! Here each node is documented indiv
 | Node | Category | Description | Docs |
 |------|----------|-------------|------|
 | **LLM Text Generator** | `zyd232 Nodes/LLM` | Connect to any OpenAI-compatible LLM service for text generation. Supports multiple images/videos/audio, streaming display, config presets, and result locking. | [📄 Docs](LLM-Text-Generator) |
-| **LLM Unload** | `zyd232 Nodes/LLM` | Send an unload signal to the LLM Server to release the model from VRAM. All parameters come from the config preset saved by the LLM Text Generator node. Supports selecting a specific model to unload. | |
+| **LLM Unload** | `zyd232 Nodes/LLM` | Send an unload signal to the LLM Server to release the model from VRAM. All parameters come from the config preset saved by the LLM Text Generator node. Supports selecting a specific model to unload. | [📄 Docs](LLM-Unload) |
 | **Images Pixels Compare** | `zyd232 Nodes` | Compare two images at the pixel level to check if they are identical; outputs a boolean. | [📄 Docs](Images-Pixels-Compare) |
 | **Save Preview Images** | `zyd232 Nodes` | Save images (PNG/JPG) with quality, metadata, custom path, workflow JSON, and preview options. | [📄 Docs](Save-Preview-Images) |
 | **Mask Batch Blend** | `zyd232 Nodes` | Blend multiple masks into one using add / max / average operations. | [📄 Docs](Mask-Batch-Blend) |
+| **Merge LoRA Stacks** | `zyd232 Nodes` | Merge multiple lora_stack inputs into a single lora_stack output. The left-side inputs are dynamic (Autogrow) and can be added freely. | [📄 Docs](Merge-LoRA-Stacks) |
+| **Join Videos** | `zyd232 Nodes` | Join multiple videos into one, in input order. Accepts file paths and VIDEO inputs through two dynamic (Autogrow) groups; outputs VHS_FILENAMES and VIDEO, joining losslessly when the segments already match the target format. | [📄 Docs](Join-Videos) |
 
 ---
 
@@ -48,6 +50,8 @@ All nodes are registered under the `zyd232 Nodes` category; the LLM node is in t
 | Images Pixels Compare | `zyd232 ImagesPixelsCompare` |
 | Save Preview Images | `zyd232_SavePreviewImages` |
 | Mask Batch Blend | `zyd232 MaskBatchBlend` |
+| Merge LoRA Stacks | `zyd232 MergeLoraStacks` |
+| Join Videos | `zyd232_JoinVideos` |
 
 ---
 
@@ -58,6 +62,8 @@ All nodes are registered under the `zyd232 Nodes` category; the LLM node is in t
 - [Images Pixels Compare](Images-Pixels-Compare)
 - [Save Preview Images](Save-Preview-Images)
 - [Mask Batch Blend](Mask-Batch-Blend)
+- [Merge LoRA Stacks](Merge-LoRA-Stacks)
+- [Join Videos](Join-Videos)
 
 ---
 
