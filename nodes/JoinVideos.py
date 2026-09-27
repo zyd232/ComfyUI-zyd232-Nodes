@@ -4,7 +4,7 @@
 初始不占用槽位，每连上一个就自动再长出一个空槽。
 
 * ``filenames`` —— 每槽一个字符串路径。为兼容 ``easy forLoopEnd`` 之类的循环累加串，
-  单个槽里也可以用逗号 / 换行分隔多个路径。
+  单个槽里也可以用逗号 / 换行分隔多个路径（空片段被忽略，但路径本身不能含逗号）。
 * ``videos``    —— 每槽一个 ComfyUI ``VIDEO``。
 
 合并顺序：先 filenames 组（按槽位序号），再 video 组（按槽位序号）。
@@ -323,7 +323,8 @@ class zyd232_JoinVideos(io.ComfyNode):
             category="zyd232 Nodes",
             description=(
                 "Join multiple videos into one, in input order. Both input groups autogrow: "
-                "'filenames' takes file paths (one per slot, or several separated by commas/newlines) "
+                "'filenames' takes file paths (one per slot, or several per slot separated by "
+                "commas/newlines; a path must not contain a comma) "
                 "and 'videos' takes VIDEO inputs; filenames are merged first, then videos. "
                 "When every source already matches the target container and the quality is left "
                 "untouched (crf = -1), the segments are joined with a lossless ffmpeg stream copy "
@@ -336,10 +337,16 @@ class zyd232_JoinVideos(io.ComfyNode):
             inputs=[
                 io.Autogrow.Input("filenames", optional=True,
                     display_name="Filenames",
-                    tooltip="Video file paths to merge. A slot may also hold several paths separated by commas or newlines.",
+                    tooltip="Video file paths to merge, one per slot or several per slot separated by "
+                            "commas / newlines. Empty entries are ignored, so a leading or trailing comma "
+                            "is harmless. A path must not contain a comma, and spaces inside a path need "
+                            "no escaping. Absolute paths are used as-is; relative paths are searched "
+                            "under the output, then the temp directory. The slots are dynamic (Autogrow) "
+                            "and can be added freely.",
                     template=io.Autogrow.TemplatePrefix(
                         input=io.String.Input("filename", display_name="Filename",
-                            tooltip="A video file path (absolute, or relative to the output/temp directory)"),
+                            tooltip="A video file path: absolute, or relative to the output/temp "
+                                    "directory. Spaces are fine; the path must not contain a comma."),
                         prefix="filename_", min=0, max=_MAX_SLOTS)),
                 io.Autogrow.Input("videos", optional=True,
                     display_name="Videos",

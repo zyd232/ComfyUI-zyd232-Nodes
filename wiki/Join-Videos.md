@@ -27,7 +27,7 @@ The `filenames` group is merged first, then the `videos` group. The node outputs
 
 | Input | Type | Description |
 |-------|------|-------------|
-| **filenames** | `STRING` (Autogrow) | Video file paths to merge. Each slot holds one path, or several paths separated by commas / newlines. Slots are dynamic — click `+` to add more. |
+| **filenames** | `STRING` (Autogrow) | Video file paths to merge. Each slot holds one path, or several paths separated by commas / newlines (a path must not contain a comma — see [File paths](#file-paths)). Slots are dynamic — click `+` to add more. |
 | **videos** | `VIDEO` (Autogrow) | `VIDEO` inputs to merge. Merged after every `filenames` slot. Slots are dynamic. |
 | **filename_prefix** | `STRING` | Output filename prefix (default `zyd232_merged`). |
 | **frame_rate** | `FLOAT` | 1–240, default `24`. Frame rate used when re-encoding, and reported in the preview. A lossless stream copy keeps each source's own timing. |
@@ -59,6 +59,17 @@ The `filenames` group is merged first, then the `videos` group. The node outputs
 2. Then every slot of the `videos` group, in slot order (`video_0` → `video_1` → …)
 
 Inside a single `filename` slot, paths are read left to right after splitting on commas / newlines. Empty entries are ignored, so a trailing separator — or a loop-accumulator string that begins with a comma — is harmless.
+
+### File paths
+
+A single `filename` slot may hold several paths, separated by commas or newlines. Splitting and resolution work like this:
+
+- **Only commas and newlines split** — never spaces. Each entry has its leading/trailing whitespace stripped afterwards, so `, A.mp4, B.mp4` (leading comma, a space after each comma) is a safe way to write it.
+- **Empty entries are ignored**: a leading comma, a trailing comma, or two commas in a row are all harmless.
+- **A path must not contain a comma.** A filename containing `,` is treated as two paths and resolution fails with `Join Videos: video file not found: ...`.
+- **Spaces inside a path need no escaping.** The node writes the full path into ffmpeg's concat list inside single quotes (`file 'W:\My Videos\my clip.mp4'`), so spaces are read verbatim. Only whitespace at the very **start or end** of an entry is removed by the stripping step.
+- **Absolute paths are used as-is**; **relative paths** are searched under `output/`, then `temp/`, and raise `Join Videos: video file not found: <path> (searched: ...)` when neither matches.
+- When every slot (including the `videos` group) is empty, the node raises `Join Videos: no input videos were provided.`.
 
 ### Lossless copy vs. re-encode
 
@@ -110,7 +121,7 @@ When a `crf` value is supplied it is clamped to the selected format's range; `cr
 ## Limits
 
 - **Maximum slots per group: 32** — for `filenames` and `videos` alike.
-- **No hard limit on the number of videos inside one slot** — a `filename` slot may hold any number of comma / newline separated paths.
+- **No hard limit on the number of videos inside one slot** — a `filename` slot may hold any number of comma / newline separated paths (a path itself must not contain a comma).
 - The selected encoder must exist in the ffmpeg build. The node looks for ffmpeg through `imageio-ffmpeg` first, then on `PATH`.
 
 ---

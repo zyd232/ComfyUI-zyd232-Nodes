@@ -87,9 +87,10 @@
     },
     "zyd232_JoinVideos": {
         "display_name": "视频拼接",
-        "description": "按输入顺序把多段视频合并为一段。两组输入均可自增加：'filenames' 收文件路径（每槽一个，也可用逗号/换行分隔多个），'videos' 收 VIDEO 输入；先合并 filenames 组，再合并 videos 组。当所有源与目标封装一致且质量未被改动（crf = -1）时，采用 ffmpeg 无损流拷贝拼接（失败则自动降级为重编码）；否则按所选格式重编码。",
+        "description": "按输入顺序把多段视频合并为一段。两组输入均可自增加：'filenames' 收文件路径（每槽一个，也可用逗号/换行分隔多个，但路径中不能含逗号），'videos' 收 VIDEO 输入；先合并 filenames 组，再合并 videos 组。当所有源与目标封装一致且质量未被改动（crf = -1）时，采用 ffmpeg 无损流拷贝拼接（失败则自动降级为重编码）；否则按所选格式重编码。",
         "inputs": {
-            "filenames": { "name": "文件名", "tooltip": "要合并的视频文件路径。槽位为动态输入（Autogrow），可自由增加；单个槽位也可用逗号/换行分隔多个路径。" },
+            "filenames": { "name": "文件名", "tooltip": "要合并的视频文件路径，每槽一个，也可在一个槽位内用逗号 / 换行分隔多个路径。空片段会被忽略，因此以逗号开头或结尾多写逗号都不会出错。路径中不能包含逗号，路径内部的空格无需转义。绝对路径直接使用；相对路径会依次在 output、temp 目录下查找。槽位为动态输入（Autogrow），可自由增加。" },
+            "filename": { "name": "文件名", "tooltip": "视频文件路径：绝对路径，或相对 output / temp 目录的相对路径。路径中的空格无需转义，但不能包含逗号。" },
             "videos": { "name": "视频", "tooltip": "要合并的 VIDEO 输入，排在 filenames 组之后。槽位为动态输入（Autogrow）。" },
             "filename_prefix": { "name": "文件名前缀", "tooltip": "输出文件名前缀。支持日期占位符：核心写法 %date:yyyy-MM-dd%，或简写 %date / %time。" },
             "frame_rate": { "name": "帧率", "tooltip": "重编码时使用的帧率，同时显示在预览信息中。无损流拷贝会保留各源自身的时长与帧率。" },
