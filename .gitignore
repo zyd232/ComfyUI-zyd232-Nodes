@@ -1,6 +1,7 @@
 #cache
 cache/
 presets/
+plans/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
